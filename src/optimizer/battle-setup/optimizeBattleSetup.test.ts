@@ -1,0 +1,331 @@
+import { beforeAll, describe, expect, it } from "vitest";
+import { calculateBattleDamage } from "../../app/calculateBattleDamage";
+import type { BattleDamageInput } from "../../domain/battleDamage";
+import type {
+  BattleSetupOptimizationInput,
+  BattleSetupOptimizationResult,
+} from "../../domain/battleSetupOptimization";
+import type { BodyHeroId } from "../../domain/hero";
+import { getSupportedBodyHeroes } from "../../game-data/heroes/bodyHeroQueries";
+import { UnavailableOptimizerHeroError } from "../body-heroes/errors";
+import {
+  createBattleSetupOptimizer,
+  currentBearBattleTotalDamageScorer,
+  optimizeBattleSetup,
+} from "./optimizeBattleSetup";
+
+const jiexi = "hero.body.jiexi" as const;
+const jiesaier = "hero.body.jiesaier" as const;
+const shuyun = "hero.body.shuyun" as const;
+const suoniya = "hero.body.suoniya" as const;
+const gewen = "hero.body.gewen" as const;
+
+const testInput: BattleSetupOptimizationInput = {
+  totalTroopCount: 100_000,
+  troopSettings: {
+    shield: {
+      troopLevelId: "T6",
+      stats: { attackPercent: 400, penetrationPercent: 100 },
+    },
+    lancer: {
+      troopLevelId: "T6",
+      stats: { attackPercent: 400, penetrationPercent: 100 },
+    },
+    marksman: {
+      troopLevelId: "T6",
+      stats: { attackPercent: 400, penetrationPercent: 100 },
+    },
+  },
+};
+
+describe("optimizeBattleSetup", () => {
+  let oneHeroDefaultGrid: BattleSetupOptimizationResult;
+
+  beforeAll(() => {
+    oneHeroDefaultGrid = optimizeBattleSetup(testInput, {
+      candidateHeroIds: [jiexi],
+    });
+  }, 30_000);
+
+  it("默认 1% 比例、四车身、topK=20 均正常生效", () => {
+    expect(oneHeroDefaultGrid.ratioStepPercent).toBe(1);
+    expect(oneHeroDefaultGrid.bodyCount).toBe(4);
+    expect(oneHeroDefaultGrid.topK).toBe(20);
+    expect(oneHeroDefaultGrid.ratioCandidateCount).toBe(5_151);
+    expect(oneHeroDefaultGrid.bodyCombinationCount).toBe(1);
+    expect(oneHeroDefaultGrid.evaluatedSetupCount).toBe(5_151);
+    expect(oneHeroDefaultGrid.results).toHaveLength(20);
+  });
+
+  it("每个完整方案均通过现有 calculateBattleDamage 计算", () => {
+    const receivedInputs: BattleDamageInput[] = [];
+    const optimizer = createBattleSetupOptimizer({
+      calculateSingleRoundDamage(input) {
+        receivedInputs.push(input);
+        return calculateBattleDamage(input);
+      },
+      scorer: currentBearBattleTotalDamageScorer,
+      now: () => 0,
+    });
+    const result = optimizer(testInput, {
+      ratioStepPercent: 50,
+      bodyCount: 4,
+      topK: 30,
+      candidateHeroIds: [jiexi, shuyun],
+    });
+
+    expect(result.ratioCandidateCount).toBe(6);
+    expect(result.bodyCombinationCount).toBe(5);
+    expect(result.evaluatedSetupCount).toBe(30);
+    expect(result.skippedCount).toBe(0);
+    // 每个比例另计算一次相同比例的无车身基准。
+    expect(receivedInputs).toHaveLength(30 + 6);
+    expect(
+      receivedInputs.filter((input) => input.bodyHeroIds.length === 4),
+    ).toHaveLength(30);
+  });
+
+  it("评估数量严格等于比例候选数乘车身组合数", () => {
+    const result = optimizeBattleSetup(testInput, {
+      ratioStepPercent: 25,
+      bodyCount: 3,
+      topK: 100,
+      candidateHeroIds: [jiexi, shuyun],
+    });
+
+    expect(result.evaluatedSetupCount).toBe(
+      result.ratioCandidateCount * result.bodyCombinationCount,
+    );
+    expect(result.skippedCount).toBe(0);
+  });
+
+  it("所有结果兵数严格守恒且车身全部来自 supported 数据", () => {
+    const supportedIds = new Set(
+      getSupportedBodyHeroes().map((hero) => hero.id),
+    );
+
+    for (const result of oneHeroDefaultGrid.results) {
+      expect(
+        result.troopCounts.shield +
+          result.troopCounts.lancer +
+          result.troopCounts.marksman,
+      ).toBe(testInput.totalTroopCount);
+      expect(result.heroes.every((hero) => hero.status === "supported")).toBe(
+        true,
+      );
+      expect(result.heroIds.every((heroId) => supportedIds.has(heroId))).toBe(
+        true,
+      );
+    }
+  });
+
+  it("允许四个相同英雄", () => {
+    expect(
+      oneHeroDefaultGrid.results.every((result) =>
+        result.heroIds.every((heroId) => heroId === jiexi),
+      ),
+    ).toBe(true);
+    expect(oneHeroDefaultGrid.results[0]!.heroIds).toEqual([
+      jiexi,
+      jiexi,
+      jiexi,
+      jiexi,
+    ] satisfies BodyHeroId[]);
+  });
+
+  it("A+B+C+D 与 D+C+B+A 只生成一个无序车身组合", () => {
+    const result = optimizeBattleSetup(testInput, {
+      ratioStepPercent: 100,
+      bodyCount: 4,
+      topK: 105,
+      candidateHeroIds: [jiexi, shuyun, suoniya, gewen],
+    });
+    const allMarksman = result.results.filter(
+      (candidate) => candidate.ratios.marksman === 100,
+    );
+
+    expect(result.bodyCombinationCount).toBe(35);
+    expect(result.evaluatedSetupCount).toBe(105);
+    expect(
+      allMarksman.filter(
+        (candidate) =>
+          candidate.heroIds.join("+") ===
+          [jiexi, shuyun, suoniya, gewen].join("+"),
+      ),
+    ).toHaveLength(1);
+    expect(
+      allMarksman.some(
+        (candidate) =>
+          candidate.heroIds.join("+") ===
+          [gewen, suoniya, shuyun, jiexi].join("+"),
+      ),
+    ).toBe(false);
+  });
+
+  it("技能相同但英雄不同的联合方案仍分别保留", () => {
+    const result = optimizeBattleSetup(testInput, {
+      ratioStepPercent: 100,
+      bodyCount: 1,
+      topK: 6,
+      candidateHeroIds: [jiexi, jiesaier],
+    });
+    const keys = result.results.map(
+      (candidate) =>
+        `${candidate.ratios.shield}/${candidate.ratios.lancer}/${candidate.ratios.marksman}:${candidate.heroIds.join("+")}`,
+    );
+
+    expect(result.bodyCombinationCount).toBe(2);
+    expect(result.evaluatedSetupCount).toBe(6);
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(new Set(result.results.map((candidate) => candidate.heroIds[0])).size).toBe(2);
+  });
+
+  it("结果按十回合 totalDamage 降序且 topK 生效", () => {
+    const result = optimizeBattleSetup(testInput, {
+      ratioStepPercent: 25,
+      bodyCount: 2,
+      topK: 7,
+      candidateHeroIds: [jiexi, shuyun],
+    });
+
+    expect(result.results).toHaveLength(7);
+    for (let index = 1; index < result.results.length; index += 1) {
+      expect(
+        result.results[index - 1]!.totalDamage,
+      ).toBeGreaterThanOrEqual(result.results[index]!.totalDamage);
+    }
+  });
+
+  it("十回合评分和结果均为现有单回合引擎结果的 10 倍", () => {
+    const result = optimizeBattleSetup(testInput, {
+      ratioStepPercent: 50,
+      bodyCount: 1,
+      topK: 6,
+      candidateHeroIds: [jiexi],
+    });
+
+    for (const candidate of result.results) {
+      const direct = calculateBattleDamage({
+        troops: [
+          {
+            troopType: "shield",
+            troopCount: candidate.troopCounts.shield,
+            ...testInput.troopSettings.shield,
+          },
+          {
+            troopType: "lancer",
+            troopCount: candidate.troopCounts.lancer,
+            ...testInput.troopSettings.lancer,
+          },
+          {
+            troopType: "marksman",
+            troopCount: candidate.troopCounts.marksman,
+            ...testInput.troopSettings.marksman,
+          },
+        ],
+        bodyHeroIds: [jiexi],
+      });
+
+      expect(candidate.singleRoundDamage).toBe(direct.finalDamage);
+      expect(candidate.totalDamage).toBeCloseTo(
+        candidate.expectedDamageByRound.reduce(
+          (sum, round) => sum + round.expectedTotalDamage,
+          0,
+        ),
+        8,
+      );
+      expect(candidate.score).toBe(candidate.totalDamage);
+    }
+  });
+
+  it("minimumRatios 和 maximumRatios 能限制联合比例候选", () => {
+    const result = optimizeBattleSetup(testInput, {
+      ratioStepPercent: 10,
+      bodyCount: 1,
+      topK: 1_000,
+      candidateHeroIds: [jiexi],
+      minimumRatios: { shield: 20, lancer: 10 },
+      maximumRatios: { shield: 50, marksman: 50 },
+    });
+
+    expect(result.ratioCandidateCount).toBeGreaterThan(0);
+    expect(result.results).toHaveLength(result.evaluatedSetupCount);
+    for (const candidate of result.results) {
+      expect(candidate.ratios.shield).toBeGreaterThanOrEqual(20);
+      expect(candidate.ratios.shield).toBeLessThanOrEqual(50);
+      expect(candidate.ratios.lancer).toBeGreaterThanOrEqual(10);
+      expect(candidate.ratios.marksman).toBeLessThanOrEqual(50);
+    }
+  });
+
+  it("专家、Buff和容量配置作为固定输入传入联合优化", () => {
+    const result = optimizeBattleSetup({
+      ...testInput,
+      preparation: {
+        baseMarchCapacity: 100_000,
+        expert: { hunterHeartLevel: 0, bearSlayerLevel: 10 },
+        town: { attack: "none", penetration: "none", defenseReduction: "none", marchCapacity: "small" },
+        pet: { attackLevel: 0, penetrationLevel: 0, defenseReductionLevel: 0, capacityLevel: 10 },
+      },
+    }, { ratioStepPercent: 100, bodyCount: 0, topK: 1 });
+    expect(Object.values(result.results[0]!.troopCounts).reduce((sum, value) => sum + value, 0)).toBe(159_500);
+  });
+
+  it("优化器把统一 N 原样交给 calculateBattleDamage 的截断公式", () => {
+    const result = optimizeBattleSetup(
+      { ...testInput, totalTroopCount: 9_999 },
+      {
+        ratioStepPercent: 50,
+        bodyCount: 0,
+        topK: 6,
+        candidateHeroIds: [],
+      },
+    );
+    const candidate = result.results.find(
+      (item) => item.ratios.shield === 50 && item.ratios.lancer === 50,
+    );
+
+    expect(candidate?.troopCounts).toEqual({
+      shield: 5_000,
+      lancer: 4_999,
+      marksman: 0,
+    });
+    expect(
+      candidate?.singleRoundResult.troopDamages.shield?.sourceResults[0]?.branch,
+    ).toBe("at-or-above-5000");
+    expect(
+      candidate?.singleRoundResult.troopDamages.lancer?.sourceResults[0]?.branch,
+    ).toBe("at-or-above-5000");
+    expect(
+      candidate?.singleRoundResult.troopDamages.shield?.sourceResults[0]?.factors.totalCountFactor,
+    ).toBe(Math.sqrt(5_000));
+    expect(
+      candidate?.singleRoundResult.troopDamages.lancer?.sourceResults[0]?.factors.totalCountFactor,
+    ).toBe(Math.sqrt(5_000));
+  });
+
+  it("pending/unsupported 英雄不能进入联合候选池", () => {
+    for (const heroId of ["hero.body.liyala", "hero.body.aisidila"] as const) {
+      expect(() =>
+        optimizeBattleSetup(testInput, {
+          ratioStepPercent: 100,
+          candidateHeroIds: [heroId],
+        }),
+      ).toThrow(UnavailableOptimizerHeroError);
+    }
+  });
+
+  it("相同输入重复运行得到完全相同的方案与顺序", () => {
+    const options = {
+      ratioStepPercent: 25,
+      bodyCount: 3,
+      topK: 20,
+      candidateHeroIds: [jiexi, shuyun],
+    } as const;
+    const first = optimizeBattleSetup(testInput, options);
+    const second = optimizeBattleSetup(testInput, options);
+
+    expect(first.results).toEqual(second.results);
+    expect(first.evaluatedSetupCount).toBe(second.evaluatedSetupCount);
+  });
+});

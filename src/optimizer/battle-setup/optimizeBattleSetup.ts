@@ -1,0 +1,343 @@
+import { calculateBattleDamage } from "../../app/calculateBattleDamage";
+import { calculateTenRoundExpectedDamage } from "../../app/calculateTenRoundExpectedDamage";
+import type { BattleDamageInput, BattleDamageResult, TroopMultiplierBreakdown } from "../../domain/battleDamage";
+import type {
+  BattleSetupOptimizationCandidateResult,
+  BattleSetupOptimizationInput,
+  BattleSetupOptimizationOptions,
+  BattleSetupOptimizationResult,
+} from "../../domain/battleSetupOptimization";
+import type { BodyHeroId, SupportedHeroDefinition } from "../../domain/hero";
+import type { OptimizerScoringMode } from "../../domain/optimizerScoring";
+import type { TenRoundExpectedDamageInput, TenRoundExpectedDamageResult } from "../../domain/tenRoundExpectedDamage";
+import type { TroopCounts, TroopRatios } from "../../domain/troopRatioOptimization";
+import type { TroopType } from "../../domain/troop";
+import { scoreCurrentBearBattleTotalDamage } from "../../rulesets/bear/battle/calculateBearBattleTotalDamage";
+import { resolveSupportedBodyHeroCandidates } from "../body-heroes/resolveSupportedBodyHeroCandidates";
+import { combinationsWithReplacement } from "../combinationsWithReplacement";
+import {
+  createOptimizerBattleEvaluator,
+  type OptimizerBattleEvaluation,
+} from "../evaluation/evaluateBattle";
+import { allocateTroopsByRatio } from "../troop-ratio/allocateTroopsByRatio";
+import { generateTroopRatioGrid } from "../troop-ratio/generateTroopRatioGrid";
+import { calculateMarchCapacity } from "../../systems/preparation";
+import {
+  BattleSetupCountOverflowError,
+  BattleSetupEvaluationCountError,
+  InvalidBattleSetupBodyCountError,
+  InvalidBattleSetupTopKError,
+} from "./errors";
+
+const DEFAULT_RATIO_STEP_PERCENT = 1;
+const DEFAULT_BODY_COUNT = 4;
+const DEFAULT_TOP_K = 20;
+const DEFAULT_SCORING_MODE: OptimizerScoringMode = "tenRoundExpected";
+const MAX_BODY_COUNT = 4;
+const TROOP_TYPES: readonly TroopType[] = ["shield", "lancer", "marksman"];
+
+export interface BattleSetupScoreContext {
+  readonly battleInput: BattleDamageInput;
+  readonly singleRoundResult: BattleDamageResult;
+}
+
+export interface BattleSetupScorer {
+  readonly id: string;
+  readonly score: (context: BattleSetupScoreContext) => number;
+}
+
+export interface BattleSetupOptimizerDependencies {
+  readonly calculateSingleRoundDamage: (input: BattleDamageInput) => BattleDamageResult;
+  /** 省略时使用正式真实技能十回合入口。 */
+  readonly calculateTenRoundExpectedDamage?: (
+    input: TenRoundExpectedDamageInput,
+    options?: { readonly enemyBaseDefense?: number },
+  ) => TenRoundExpectedDamageResult;
+  /** legacy模式的兼容评分器；tenRoundExpected模式不会使用它。 */
+  readonly scorer: BattleSetupScorer;
+  readonly now?: () => number;
+}
+
+export const currentBearBattleTotalDamageScorer: BattleSetupScorer = {
+  id: "bearBattleTotalDamage",
+  score({ singleRoundResult }): number {
+    return scoreCurrentBearBattleTotalDamage(singleRoundResult);
+  },
+};
+
+/** 默认联合优化入口：对比例×车身组合逐项计算十回合精确期望。 */
+export const optimizeBattleSetup = createBattleSetupOptimizer({
+  calculateSingleRoundDamage: calculateBattleDamage,
+  calculateTenRoundExpectedDamage,
+  scorer: currentBearBattleTotalDamageScorer,
+});
+
+export function createBattleSetupOptimizer(
+  dependencies: BattleSetupOptimizerDependencies,
+): (
+  input: BattleSetupOptimizationInput,
+  options?: BattleSetupOptimizationOptions,
+) => BattleSetupOptimizationResult {
+  const now = dependencies.now ?? (() => performance.now());
+
+  return (input, options = {}) => {
+    const startedAt = now();
+    const ratioStepPercent = options.ratioStepPercent ?? DEFAULT_RATIO_STEP_PERCENT;
+    const bodyCount = options.bodyCount ?? DEFAULT_BODY_COUNT;
+    const topK = options.topK ?? DEFAULT_TOP_K;
+    const scoringMode = options.scoringMode ?? DEFAULT_SCORING_MODE;
+    validateOptions(bodyCount, topK);
+
+    const ratios = generateTroopRatioGrid(ratioStepPercent, {
+      ...(options.minimumRatios === undefined ? {} : { minimumRatios: options.minimumRatios }),
+      ...(options.maximumRatios === undefined ? {} : { maximumRatios: options.maximumRatios }),
+    });
+    const candidateHeroes = resolveSupportedBodyHeroCandidates(options.candidateHeroIds);
+    const heroCombinations = combinationsWithReplacement(candidateHeroes, bodyCount).map(
+      (heroes) => ({
+        heroes,
+        heroIds: heroes.map((hero) => hero.id as BodyHeroId),
+      }),
+    );
+    const cartesianCandidateCount = ratios.length * heroCombinations.length;
+    if (!Number.isSafeInteger(cartesianCandidateCount)) {
+      throw new BattleSetupCountOverflowError();
+    }
+
+    const evaluator = createOptimizerBattleEvaluator({
+      calculateSingleRoundDamage: dependencies.calculateSingleRoundDamage,
+      ...(dependencies.calculateTenRoundExpectedDamage === undefined
+        ? {}
+        : { calculateTenRoundExpectedDamage: dependencies.calculateTenRoundExpectedDamage }),
+    });
+    const evaluate = (battleInput: TenRoundExpectedDamageInput) =>
+      evaluator.evaluate(battleInput, {
+        scoringMode,
+        legacyMetricId: dependencies.scorer.id,
+        legacyScore: (singleRound) =>
+          dependencies.scorer.score({ battleInput, singleRoundResult: singleRound }),
+        ...(input.enemyBaseDefense === undefined
+          ? {}
+          : { enemyBaseDefense: input.enemyBaseDefense }),
+      });
+    const bestCandidates: EvaluatedSetup[] = [];
+    let evaluatedSetupCount = 0;
+
+    const allocationTotal = input.preparation === undefined
+      ? input.totalTroopCount
+      : calculateMarchCapacity(input.preparation).finalMarchCapacity;
+    for (const ratio of ratios) {
+      const troopCounts = allocateTroopsByRatio(allocationTotal, ratio);
+      const troops = createTroops(input, troopCounts);
+      const noBodyEvaluation = evaluate(createBattleInput(input, troops, []));
+
+      for (const combination of heroCombinations) {
+        const battleInput = createBattleInput(input, troops, combination.heroIds);
+        const evaluation = evaluate(battleInput);
+        evaluatedSetupCount += 1;
+        insertCandidate(
+          bestCandidates,
+          {
+            ratios: ratio,
+            troopCounts,
+            heroes: combination.heroes,
+            heroIds: combination.heroIds,
+            evaluation,
+            noBodyScore: noBodyEvaluation.score,
+          },
+          topK,
+        );
+      }
+    }
+
+    if (evaluatedSetupCount !== cartesianCandidateCount) {
+      throw new BattleSetupEvaluationCountError(
+        cartesianCandidateCount,
+        evaluatedSetupCount,
+      );
+    }
+    const results = bestCandidates.map((candidate, index) =>
+      createResult(candidate, index + 1),
+    );
+    const elapsedMs = now() - startedAt;
+    const cache = evaluator.cache.statistics();
+
+    return {
+      ratioStepPercent,
+      bodyCount,
+      topK,
+      scoringMode,
+      scoreMetric:
+        scoringMode === "tenRoundExpected"
+          ? "expectedTenRoundTotalDamage"
+          : dependencies.scorer.id,
+      ratioCandidateCount: ratios.length,
+      bodyCombinationCount: heroCombinations.length,
+      cartesianCandidateCount,
+      evaluatedSetupCount,
+      skippedCount: 0,
+      elapsedMs,
+      stats: {
+        candidateCount: cartesianCandidateCount,
+        evaluatedCount: evaluatedSetupCount,
+        cacheHits: cache.cacheHits,
+        cacheMisses: cache.cacheMisses,
+        probabilityStateCount: evaluator.probabilityStateCount(),
+        elapsedMs,
+      },
+      results,
+    };
+  };
+}
+
+interface EvaluatedSetup {
+  readonly ratios: TroopRatios;
+  readonly troopCounts: TroopCounts;
+  readonly heroes: readonly SupportedHeroDefinition[];
+  readonly heroIds: readonly BodyHeroId[];
+  readonly evaluation: OptimizerBattleEvaluation;
+  readonly noBodyScore: number;
+}
+
+function createTroops(
+  input: BattleSetupOptimizationInput,
+  troopCounts: TroopCounts,
+): BattleDamageInput["troops"] {
+  return TROOP_TYPES.map((troopType) => ({
+    troopType,
+    troopCount: troopCounts[troopType],
+    troopLevelId: input.troopSettings[troopType].troopLevelId,
+    stats: input.troopSettings[troopType].stats,
+  }));
+}
+
+function createBattleInput(
+  input: BattleSetupOptimizationInput,
+  troops: BattleDamageInput["troops"],
+  bodyHeroIds: readonly BodyHeroId[],
+): TenRoundExpectedDamageInput {
+  return {
+    troops,
+    bodyHeroIds,
+    ...(input.headFormation === undefined ? {} : { headFormation: input.headFormation }),
+    ...(input.fireCrystal === undefined ? {} : { fireCrystal: input.fireCrystal }),
+    ...(input.preparation === undefined ? {} : { preparation: input.preparation }),
+    ...(input.damageChannel === undefined ? {} : { damageChannel: input.damageChannel }),
+  };
+}
+
+function insertCandidate(
+  candidates: EvaluatedSetup[],
+  candidate: EvaluatedSetup,
+  topK: number,
+): void {
+  if (
+    candidates.length === topK &&
+    compareCandidates(candidate, candidates[candidates.length - 1]!) >= 0
+  ) {
+    return;
+  }
+  let low = 0;
+  let high = candidates.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (compareCandidates(candidate, candidates[middle]!) < 0) high = middle;
+    else low = middle + 1;
+  }
+  candidates.splice(low, 0, candidate);
+  if (candidates.length > topK) candidates.pop();
+}
+
+function compareCandidates(left: EvaluatedSetup, right: EvaluatedSetup): number {
+  const scoreOrder = right.evaluation.score - left.evaluation.score;
+  if (scoreOrder !== 0) return scoreOrder;
+  const marksmanOrder = right.ratios.marksman - left.ratios.marksman;
+  if (marksmanOrder !== 0) return marksmanOrder;
+  const lancerOrder = right.ratios.lancer - left.ratios.lancer;
+  if (lancerOrder !== 0) return lancerOrder;
+  const shieldOrder = right.ratios.shield - left.ratios.shield;
+  if (shieldOrder !== 0) return shieldOrder;
+  return left.heroIds.join("|").localeCompare(right.heroIds.join("|"));
+}
+
+function createResult(
+  candidate: EvaluatedSetup,
+  rank: number,
+): BattleSetupOptimizationCandidateResult {
+  const { evaluation } = candidate;
+  const singleRoundTroopDamages: Record<TroopType, number> = {
+    shield: 0,
+    lancer: 0,
+    marksman: 0,
+  };
+  const troopDamages: Record<TroopType, number> = {
+    shield: 0,
+    lancer: 0,
+    marksman: 0,
+  };
+  const multipliers: Partial<Record<TroopType, TroopMultiplierBreakdown>> = {};
+  for (const troopType of TROOP_TYPES) {
+    singleRoundTroopDamages[troopType] =
+      evaluation.singleRoundResult.troopDamages[troopType]?.finalDamage ?? 0;
+    troopDamages[troopType] =
+      evaluation.expectedResult?.expectedDamageByTroop[troopType] ??
+      evaluation.deterministicTenRoundResult.rounds.reduce(
+        (sum, round) =>
+          sum +
+          (troopType === "shield"
+            ? round.shieldDamage
+            : troopType === "lancer"
+              ? round.lancerDamage
+              : round.marksmanDamage),
+        0,
+      );
+    const multiplier =
+      evaluation.singleRoundResult.troopDamages[troopType]?.multipliers;
+    if (multiplier !== undefined) multipliers[troopType] = multiplier;
+  }
+  const improvementAbsolute = evaluation.score - candidate.noBodyScore;
+  const improvementRatio =
+    candidate.noBodyScore === 0
+      ? null
+      : evaluation.score / candidate.noBodyScore - 1;
+
+  return {
+    rank,
+    ratios: candidate.ratios,
+    troopCounts: candidate.troopCounts,
+    heroes: candidate.heroes,
+    heroIds: candidate.heroIds,
+    totalDamage: evaluation.score,
+    expectedTenRoundDamage: evaluation.expectedTenRoundDamage,
+    expectedDamageByRound:
+      evaluation.expectedResult?.expectedDamageByRound ?? [],
+    singleRoundDamage: evaluation.singleRoundResult.finalDamage,
+    troopDamages,
+    singleRoundTroopDamages,
+    multipliers,
+    score: evaluation.score,
+    improvementAbsolute,
+    improvementRatio,
+    ...(improvementRatio === null
+      ? {}
+      : { improvementOverNoBody: improvementRatio }),
+    singleRoundResult: evaluation.singleRoundResult,
+    battleTotalResult: evaluation.deterministicTenRoundResult,
+    skippedPendingSkills:
+      evaluation.expectedResult?.skippedPendingSkills ?? [],
+    unsupportedSkills: evaluation.expectedResult?.unsupportedSkills ?? [],
+  };
+}
+
+function validateOptions(bodyCount: number, topK: number): void {
+  if (
+    !Number.isSafeInteger(bodyCount) ||
+    bodyCount < 0 ||
+    bodyCount > MAX_BODY_COUNT
+  ) {
+    throw new InvalidBattleSetupBodyCountError(bodyCount);
+  }
+  if (!Number.isSafeInteger(topK) || topK <= 0) {
+    throw new InvalidBattleSetupTopKError(topK);
+  }
+}

@@ -6,9 +6,9 @@ import { CalculatorApp } from "./App";
 afterEach(cleanup);
 
 describe("计算器UI有限选项与技能说明", () => {
-  it("标题从统一版本常量显示v0.2", () => {
+  it("标题从统一版本常量显示v0.3", () => {
     render(<CalculatorApp />);
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("无尽冬日打熊伤害模型 v0.2");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("无尽冬日打熊伤害模型 v0.3");
     expect(screen.getByText("缥缈制作，欢迎移民583")).toBeTruthy();
     expect(document.querySelector(".header-meta-row .author-note")).toBeTruthy();
   });
@@ -22,8 +22,8 @@ describe("计算器UI有限选项与技能说明", () => {
       "穿透等级",
       "减防等级",
       "出征等级",
-      "炽火凝星",
-      "矛兵 T12 技能",
+      "炽火燧星（射T12技能）",
+      "烈辉战阵（矛T12技能）",
       "返回方案数",
     ]) {
       expect(screen.getByLabelText(label).tagName).toBe("SELECT");
@@ -41,11 +41,12 @@ describe("计算器UI有限选项与技能说明", () => {
   it("尼莫可选并展示三个正式远征技能", () => {
     render(<CalculatorApp />);
     const shieldHead = screen.getByLabelText("盾兵车头") as HTMLSelectElement;
-    expect([...shieldHead.options].some((option) => option.textContent === "尼莫 · 全军穿透 +25%")).toBe(true);
+    expect([...shieldHead.options].some((option) => option.textContent === "尼莫")).toBe(true);
     fireEvent.change(shieldHead, { target: { value: "hero.head.nimo" } });
-    expect(screen.getAllByText("【全军穿透 +25%】").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("【全军攻击 +25%】").length).toBeGreaterThan(0);
-    expect(screen.getByText("【全军伤害 +30%】")).toBeTruthy();
+    expect(screen.getByText("【战前宣言】")).toBeTruthy();
+    expect(screen.getByText("【剑术指导】")).toBeTruthy();
+    expect(screen.getByText("【精湛剑术】")).toBeTruthy();
+    expect(screen.getAllByText(/全军穿透 \+25%/).length).toBeGreaterThan(0);
   });
 
   it("弗林特可作为盾兵车头选择并展示三个正式技能", () => {
@@ -54,12 +55,11 @@ describe("计算器UI有限选项与技能说明", () => {
     const flintOption = [...shieldHead.options].find(
       (option) => option.value === "hero.head.fulinte",
     );
-    expect(flintOption?.textContent).toContain("弗林特");
-    expect(flintOption?.textContent).toContain("盾兵伤害 +100%");
+    expect(flintOption?.textContent).toBe("弗林特（S2）");
     fireEvent.change(shieldHead, { target: { value: "hero.head.fulinte" } });
-    expect(screen.getByText("【盾兵伤害 +100%】")).toBeTruthy();
-    expect(screen.getAllByText("【全军攻击 +25%】").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("【全军穿透 +25%】").length).toBeGreaterThan(0);
+    expect(screen.getByText("【野火燎原】")).toBeTruthy();
+    expect(screen.getByText("【燃烧意志】")).toBeTruthy();
+    expect(screen.getByText("【无尽烈火】")).toBeTruthy();
     expect(document.body.textContent).not.toMatch(/弗林特.*(?:supported|pending|confirmed)/i);
   });
 
@@ -74,7 +74,7 @@ describe("计算器UI有限选项与技能说明", () => {
     for (const label of ["盾兵车头","矛兵车头","射手车头","车身 1","车身 2","车身 3","车身 4"]) {
       expect((screen.getByLabelText(label) as HTMLSelectElement).value).toBe("");
     }
-    for (const label of ["猎手之心","巨熊克星","炽火凝星","矛兵 T12 技能"]) {
+    for (const label of ["猎手之心","巨熊克星","炽火燧星（射T12技能）","烈辉战阵（矛T12技能）"]) {
       expect((screen.getByLabelText(label) as HTMLSelectElement).value).toBe("0");
     }
     expect((screen.getByLabelText("集结专武攻击加成 %") as HTMLInputElement).value).toBe("0");
@@ -117,7 +117,7 @@ describe("计算器UI有限选项与技能说明", () => {
     expect(bodyLabels.join("\n")).not.toMatch(/supported|pending|已确认\/|\d+已确认/);
     const lancerHead = screen.getByLabelText("矛兵车头") as HTMLSelectElement;
     fireEvent.change(lancerHead, { target: { value: "hero.head.miya" } });
-    expect(screen.getAllByText("【全军伤害 +50%】").length).toBeGreaterThan(0);
+    expect(screen.getByText("【幸运加护】")).toBeTruthy();
     expect(screen.getAllByText("来源英雄：米娅").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/50%概率/).length).toBeGreaterThan(0);
   });
@@ -156,11 +156,13 @@ describe("计算器UI有限选项与技能说明", () => {
     expect((screen.getByLabelText("部队攻击") as HTMLInputElement).value).toBe("333");
   });
 
-  it("更新日志从数据列表展示v0.1与v0.2", () => {
+  it("更新日志从数据列表展示v0.1至v0.3", () => {
     render(<CalculatorApp />);
     expect(screen.getByText("更新日志")).toBeTruthy();
+    expect(screen.getByText("v0.3 · 2026-09-10")).toBeTruthy();
     expect(screen.getByText("v0.2 · 2026-09-09")).toBeTruthy();
     expect(screen.getByText("v0.1 · 2026-09-09")).toBeTruthy();
     expect(screen.getByText("优化集结模式输入与默认配置")).toBeTruthy();
+    expect(screen.getByText("新增/完善多代射手车头英雄")).toBeTruthy();
   });
 });

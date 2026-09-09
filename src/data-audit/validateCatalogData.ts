@@ -79,6 +79,7 @@ export function validateSkillData(
       }
       validateTrigger(record.skill.trigger, `${path}.skill.trigger`, issues);
       validateLifecycle(record.skill.lifecycle, `${path}.skill.lifecycle`, issues);
+      validateSkillRuntimeMetadata(record.skill, `${path}.skill`, issues);
     }
     if (record.status === "supported" && record.effects.length === 0) {
       issue(issues, "supported-without-effects", path, "supported技能必须至少有一个效果。");
@@ -95,6 +96,58 @@ export function validateSkillData(
   }
 
   return result(records.length, issues);
+}
+
+function validateSkillRuntimeMetadata(
+  skill: import("../domain/skill").Skill,
+  path: string,
+  issues: DataValidationIssue[],
+): void {
+  const critValues = [skill.critProbability, skill.critMultiplier, skill.critAppliesTo];
+  if (critValues.some((value) => value !== undefined)) {
+    if (
+      skill.critProbability === undefined ||
+      !Number.isFinite(skill.critProbability) ||
+      skill.critProbability < 0 ||
+      skill.critProbability > 1
+    ) {
+      issue(issues, "invalid-crit-probability", path, "critProbability必须位于[0,1]。");
+    }
+    if (
+      skill.critMultiplier === undefined ||
+      !Number.isFinite(skill.critMultiplier) ||
+      skill.critMultiplier < 1
+    ) {
+      issue(issues, "invalid-crit-multiplier", path, "critMultiplier必须是至少为1的有限数。");
+    }
+    if (skill.critAppliesTo !== "normalAttackOnly") {
+      issue(issues, "invalid-crit-target", path, "critAppliesTo必须明确为normalAttackOnly。");
+    }
+    if (
+      skill.trigger.type !== "probability" ||
+      skill.trigger.probability !== skill.critProbability ||
+      skill.effects.some((effect) => effect.type !== "normalAttackDamageIncrease")
+    ) {
+      issue(issues, "invalid-crit-runtime-mapping", path, "暴击必须映射为同概率的normalAttackDamageIncrease事件。");
+    }
+  }
+
+  const counter = skill.normalAttackCounter;
+  if (counter !== undefined) {
+    if (!counter.counterId.trim()) {
+      issue(issues, "invalid-attack-counter-id", path, "普通攻击计数器counterId不能为空。");
+    }
+    if (
+      !["shield", "lancer", "marksman", "allIndependent"].includes(counter.troopType) ||
+      !Number.isSafeInteger(counter.attacksPerTrigger) ||
+      counter.attacksPerTrigger < 1 ||
+      !Number.isSafeInteger(counter.firstTriggerAttack) ||
+      counter.firstTriggerAttack < 1 ||
+      counter.counts !== "normalAttackOnly"
+    ) {
+      issue(issues, "invalid-attack-counter", path, "普通攻击计数器字段不完整或非法。");
+    }
+  }
 }
 
 export function validateHeroData(): DataValidationResult {
@@ -540,6 +593,21 @@ function validateTrigger(
       (!Number.isSafeInteger(trigger.attemptsPerRound) || trigger.attemptsPerRound < 1)
     ) {
       issue(issues, "invalid-attempt-count", path, "attemptsPerRound必须是正安全整数。");
+    }
+    if (trigger.independentTroopTargets !== undefined) {
+      const targets = trigger.independentTroopTargets;
+      if (
+        targets.length === 0 ||
+        targets.some((target) => !["shield", "lancer", "marksman"].includes(target)) ||
+        new Set(targets).size !== targets.length
+      ) {
+        issue(
+          issues,
+          "invalid-independent-troop-targets",
+          path,
+          "independentTroopTargets必须是非空、无重复的合法兵种列表。",
+        );
+      }
     }
     if (
       trigger.instanceAggregation !== undefined &&

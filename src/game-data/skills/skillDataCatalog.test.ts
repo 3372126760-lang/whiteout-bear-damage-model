@@ -17,8 +17,8 @@ const battleInput = {
 describe("统一真实技能目录", () => {
   it("统一查询四类来源并保持稳定记录ID唯一", () => {
     const entries = getAllSkillDataCatalogEntries();
-    expect(entries).toHaveLength(59);
-    expect(getSupportedSkillDataCatalogEntries()).toHaveLength(55);
+    expect(entries).toHaveLength(80);
+    expect(getSupportedSkillDataCatalogEntries()).toHaveLength(76);
     expect(getPendingSkillDataCatalogEntries()).toHaveLength(4);
     expect(getUnsupportedSkillDataCatalogEntries()).toHaveLength(0);
     expect(new Set(entries.map((entry) => entry.id)).size).toBe(entries.length);

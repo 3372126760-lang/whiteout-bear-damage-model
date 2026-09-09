@@ -17,13 +17,13 @@ export function resolveAutomaticTroopSkills(troops:readonly BaseTroopGroupInput[
     const fc=level.fireCrystalLevel??0;
     if(fc>=3){const probability=fc>=5?.30:.20;const linked=fc>=10?.375:fc>=8?.25:0;skills.push(probabilityExtra("skill.auto.marksman.crystal-powder","燃晶火药",probability,"marksman",[.5,...(linked?[linked]:[])],fc>=5?"troop-skill.marksman.crystal-powder":"troop-skill.marksman.crystal-powder-l1"))}
     if(fc>=8)skills.push(always("skill.auto.marksman.flame-impact","火焰冲击",{type:"normalAttackDamageIncrease",value:fc>=10?.06:.04,targetTroop:"marksman"},fc>=10?"troop-skill.marksman.flame-impact":"troop-skill.marksman.flame-impact-l1","fireCrystalSkill"));
-    const blazing=levels.marksmanBlazingStarLevel??0;bounded(blazing,0,24,"炽火凝星");
-    if(blazing>0)skills.push(always("skill.auto.marksman.blazing-star",`炽火凝星 L${blazing}`,{type:"baseDamageIncrease",value:.005*blazing,targetTroop:"marksman",activeRounds:[6,7,8,9,10]},"troop-skill.marksman.blazing-star","fireCrystalSkill"));
+    const blazing=levels.marksmanBlazingStarLevel??0;bounded(blazing,0,24,"炽火燧星（射T12技能）");
+    if(blazing>0)skills.push(always("skill.auto.marksman.blazing-star",`炽火燧星（射T12技能） L${blazing}`,{type:"baseDamageIncrease",value:.005*blazing,targetTroop:"marksman",activeRounds:[6,7,8,9,10]},"troop-skill.marksman.blazing-star","fireCrystalSkill"));
   }
   if(lancer){
     const level=levelCatalog[lancer.troopLevelId]!;
-    const t12=levels.lancerT12SkillLevel??0;bounded(t12,0,24,"矛兵T12技能");
-    if(level.tier>=12&&t12>0)skills.push(always("skill.auto.lancer.t12","矛兵T12技能",{type:"baseDamageIncrease",value:.01*t12,targetTroop:"lancer",activeRounds:[1,2,3,4,5]}));
+    const t12=levels.lancerT12SkillLevel??0;bounded(t12,0,24,"烈辉战阵（矛T12技能）");
+    if(level.tier>=12&&t12>0)skills.push(always("skill.auto.lancer.t12","烈辉战阵（矛T12技能）",{type:"baseDamageIncrease",value:.01*t12,targetTroop:"lancer",activeRounds:[1,2,3,4,5]}));
     const fc=level.fireCrystalLevel??0;
     if(fc>=3)skills.push(probabilityExtra("skill.auto.lancer.crystal-spear","炎晶战矛",fc>=5?.15:.10,"lancer",[1]));
   }

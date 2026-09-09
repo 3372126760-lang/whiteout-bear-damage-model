@@ -185,17 +185,17 @@ describe("兵种技能与火晶技能", () => {
     expect(skillsAt("T10-FC10").find((skill) => skill.name === "燃晶火药")?.effects.map((effect) => effect.value)).toEqual([.5,.375]);
   });
 
-  it("炽火凝星按等级直接在round6-10生效，不在战斗中叠层", () => {
+  it("炽火燧星按等级直接在round6-10生效，不在战斗中叠层", () => {
     for (const [level, value] of [[1,.005],[10,.05],[24,.12]] as const) {
-      const skill = resolveAutomaticTroopSkills(baseTroops, { marksmanBlazingStarLevel: level }).find((entry) => entry.name.includes("炽火凝星"))!;
+      const skill = resolveAutomaticTroopSkills(baseTroops, { marksmanBlazingStarLevel: level }).find((entry) => entry.name.includes("炽火燧星"))!;
       expect(skill.effects[0]).toMatchObject({ value, activeRounds: [6,7,8,9,10] });
       expect(skill.lifecycle).toBeUndefined();
     }
   });
 
-  it("矛兵T12技能L24仅round1-5；炎晶战矛FC3/FC5概率为10%/15%且不是额外攻击", () => {
+  it("烈辉战阵L24仅round1-5；炎晶战矛FC3/FC5概率为10%/15%且不是额外攻击", () => {
     const t12 = resolveAutomaticTroopSkills([{ ...baseTroops[1]!, troopLevelId: "T12-FC10" }], { lancerT12SkillLevel: 24 });
-    expect(t12.find((skill) => skill.name === "矛兵T12技能")?.effects[0]).toMatchObject({ type: "baseDamageIncrease", value: .24, activeRounds: [1,2,3,4,5] });
+    expect(t12.find((skill) => skill.name === "烈辉战阵（矛T12技能）")?.effects[0]).toMatchObject({ type: "baseDamageIncrease", value: .24, activeRounds: [1,2,3,4,5] });
     for (const [level, probability] of [["T10-FC3",.10],["T10-FC5",.15]] as const) {
       const skill = resolveAutomaticTroopSkills([{ ...baseTroops[1]!, troopLevelId: level }]).find((entry) => entry.name === "炎晶战矛")!;
       expect(skill.trigger).toMatchObject({ probability });

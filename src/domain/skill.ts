@@ -104,6 +104,26 @@ export interface ProbabilityInstanceAggregation {
 }
 
 /**
+ * 同一技能在一回合内按兵种分别进行一次独立 Bernoulli 判定。
+ * 该字段只描述判定粒度；伤害引擎仍由 SkillEffect.targetTroop 决定效果目标。
+ */
+export type IndependentTroopProbabilityTargets = readonly TroopType[];
+
+/**
+ * 普通攻击计数器的资料层语义。当前熊模型每个兵种每回合恰有一次普通攻击，
+ * 因而可由 everyNRounds 的显式回合表精确调度；counterId 用于声明多个技能共享计数器。
+ */
+export interface NormalAttackCounterRule {
+  readonly counterId: string;
+  readonly troopType: TroopType | "allIndependent";
+  readonly attacksPerTrigger: number;
+  readonly firstTriggerAttack: number;
+  readonly counts: "normalAttackOnly";
+}
+
+export type CritAppliesTo = "normalAttackOnly";
+
+/**
  * 概率判定所依附的事件阶段。
  * 这里只表达数据，不声明真实游戏中任一技能在哪个阶段判定。
  */
@@ -246,6 +266,8 @@ export type SkillTrigger =
       readonly durationRounds?: number;
       /** 同一回合相互独立的判定次数；省略为1。 */
       readonly attemptsPerRound?: number;
+      /** 每个列出的兵种分别独立判定；不得折叠成一次全军概率。 */
+      readonly independentTroopTargets?: IndependentTroopProbabilityTargets;
       /** explicitSchedule使用；仅在列出的回合判定。 */
       readonly triggerRounds?: readonly number[];
       /** 多实例共享同一状态时的精确概率合并规则。 */
@@ -292,6 +314,12 @@ export interface Skill {
   readonly rawMechanicType?: "extraAttack" | "extraDamage";
   /** 当前正式熊模型采用的结算语义。 */
   readonly bearModelType?: "extraDamageExpected" | "extraDamage";
+  /** 暴击保留为概率普通攻击倍率，不归入全局 damageIncrease。 */
+  readonly critProbability?: number;
+  readonly critMultiplier?: number;
+  readonly critAppliesTo?: CritAppliesTo;
+  /** 攻击计数语义；多个技能可用同一 counterId 明确共享计数。 */
+  readonly normalAttackCounter?: NormalAttackCounterRule;
   readonly effects: readonly SkillEffect[];
   readonly trigger: SkillTrigger;
   readonly lifecycle?: EffectLifecycle;

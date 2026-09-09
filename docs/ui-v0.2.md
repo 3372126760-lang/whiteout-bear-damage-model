@@ -20,4 +20,4 @@
 
 ## 版本日志
 
-页面日志由 `src/app/changelog.ts` 的 `CHANGELOG_ENTRIES` 驱动，当前包含 v0.1 与 v0.2。
+页面日志由 `src/app/changelog.ts` 的 `CHANGELOG_ENTRIES` 驱动，当前包含 v0.1、v0.2 与 v0.3。

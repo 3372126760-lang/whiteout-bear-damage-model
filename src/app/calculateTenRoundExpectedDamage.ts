@@ -407,30 +407,39 @@ function compileSupportedSkillScenario(
   instanceKey: string,
 ): ExactProbabilityScenario {
   if (skill.trigger.type === "probability") {
-    let event: BernoulliStateTransition;
+    const independentlyTargetedSkills = materializeIndependentTroopProbabilitySkills(skill);
+    const events: BernoulliStateTransition[] = [];
     let transitionAfterRound:
       | ExactProbabilityScenario["transitionAfterRound"]
       | undefined;
-    if (
-      skill.lifecycle?.durationRounds !== undefined ||
-      skill.effects.some((effect) => effect.lifecycle?.durationRounds !== undefined)
-    ) {
-      event = createDurationProbabilityEvent(skill, {
-        sourceId: `${skill.id}.${instanceKey}`,
-        eventId: `duration.${skill.id}.${instanceKey}`,
-      });
-      transitionAfterRound = advanceDurationEffectsAfterRound;
-    } else if (skill.effects.some((effect) => effect.type === "extraAttack")) {
-      throw new UnsupportedRealSkillScheduleError(
-        skill.id,
-        "当前正式打熊模型不结算extraAttack；请由数据适配层映射为已确认的extraDamage期望。",
-      );
-    } else if (skill.effects.some((effect) => effect.type === "extraDamage")) {
-      event = createExtraDamageProbabilityEvent(skill, {
-        eventId: `extra-damage.${skill.id}.${instanceKey}`,
-      });
-    } else {
-      event = createInstantProbabilityEvent(skill, `instant.${skill.id}.${instanceKey}`);
+    for (const targeted of independentlyTargetedSkills) {
+      const eventSuffix = targeted.targetTroop === undefined
+        ? instanceKey
+        : `${instanceKey}.troop.${targeted.targetTroop}`;
+      if (
+        targeted.skill.lifecycle?.durationRounds !== undefined ||
+        targeted.skill.effects.some((effect) => effect.lifecycle?.durationRounds !== undefined)
+      ) {
+        events.push(createDurationProbabilityEvent(targeted.skill, {
+          sourceId: `${skill.id}.${eventSuffix}`,
+          eventId: `duration.${skill.id}.${eventSuffix}`,
+        }));
+        transitionAfterRound = advanceDurationEffectsAfterRound;
+      } else if (targeted.skill.effects.some((effect) => effect.type === "extraAttack")) {
+        throw new UnsupportedRealSkillScheduleError(
+          skill.id,
+          "当前正式打熊模型不结算extraAttack；请由数据适配层映射为已确认的extraDamage期望。",
+        );
+      } else if (targeted.skill.effects.some((effect) => effect.type === "extraDamage")) {
+        events.push(createExtraDamageProbabilityEvent(targeted.skill, {
+          eventId: `extra-damage.${skill.id}.${eventSuffix}`,
+        }));
+      } else {
+        events.push(createInstantProbabilityEvent(
+          targeted.skill,
+          `instant.${skill.id}.${eventSuffix}`,
+        ));
+      }
     }
     const frequency = skill.trigger.frequency;
     if (frequency !== "oncePerBattle" && frequency !== "oncePerRound" && frequency !== "explicitSchedule") {
@@ -448,7 +457,12 @@ function compileSupportedSkillScenario(
       createRoundPlan: ({ round }) => ({
         beforeDamageEvents:
           frequency === "oncePerRound" || (frequency === "oncePerBattle" && round === 1) || (frequency === "explicitSchedule" && (skill.trigger.type === "probability" && skill.trigger.triggerRounds?.includes(round) === true))
-            ? Array.from({ length: attempts }, (_, index) => ({ ...event, id: `${event.id}.attempt.${index}` }))
+            ? events.flatMap((event) =>
+                Array.from({ length: attempts }, (_, index) => ({
+                  ...event,
+                  id: `${event.id}.attempt.${index}`,
+                })),
+              )
             : [],
       }),
       ...(transitionAfterRound === undefined ? {} : { transitionAfterRound }),
@@ -468,6 +482,36 @@ function compileSupportedSkillScenario(
     skill.id,
     `当前自动目录适配器不单独调度${skill.trigger.type}；需要明确来源事件。`,
   );
+}
+
+function materializeIndependentTroopProbabilitySkills(
+  skill: Skill,
+): readonly { readonly skill: Skill; readonly targetTroop?: import("../domain/troop").TroopType }[] {
+  if (skill.trigger.type !== "probability") return [{ skill }];
+  const targets = skill.trigger.independentTroopTargets;
+  if (targets === undefined) return [{ skill }];
+  if (targets.length === 0 || new Set(targets).size !== targets.length) {
+    throw new UnsupportedRealSkillScheduleError(
+      skill.id,
+      "independentTroopTargets必须是非空且无重复的兵种列表。",
+    );
+  }
+  return targets.map((targetTroop) => ({
+    targetTroop,
+    skill: {
+      ...skill,
+      effects: skill.effects.map((effect) => {
+        const configuredTarget = effect.targetTroop ?? "all";
+        if (configuredTarget !== "all" && configuredTarget !== targetTroop) {
+          throw new UnsupportedRealSkillScheduleError(
+            skill.id,
+            `独立${targetTroop}判定不能应用到${configuredTarget}效果。`,
+          );
+        }
+        return { ...effect, targetTroop };
+      }),
+    },
+  }));
 }
 
 function combineScenarios(

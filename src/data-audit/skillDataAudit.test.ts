@@ -34,12 +34,12 @@ describe("真实技能目录审计", () => {
   it("当前skill、hero和troop skill数据全部通过校验", () => {
     expect(validateSkillData()).toEqual({
       valid: true,
-      checkedCount: 59,
+      checkedCount: 80,
       issues: [],
     });
     expect(validateHeroData()).toEqual({
       valid: true,
-      checkedCount: 39,
+      checkedCount: 49,
       issues: [],
     });
     expect(validateTroopSkillData()).toEqual({
@@ -543,12 +543,12 @@ describe("真实技能目录审计", () => {
     const report = generateSkillSupportReport();
 
     expect(report.totals.skills).toEqual({
-      supported: 55,
+      supported: 76,
       pending: 4,
       unsupported: 0,
     });
     expect(report.totals.effects).toEqual({
-      supported: 56,
+      supported: 80,
       pending: 0,
       unsupported: 0,
     });
@@ -557,7 +557,7 @@ describe("真实技能目录审计", () => {
       pending: 4,
       unsupported: 0,
     });
-    expect(report.byCategory.head.skills).toEqual({ supported: 23, pending: 0, unsupported: 0 });
+    expect(report.byCategory.head.skills).toEqual({ supported: 44, pending: 0, unsupported: 0 });
     expect(report.byCategory.fireCrystal.skills).toEqual({ supported: 6, pending: 0, unsupported: 0 });
     expect(report.byCategory.troopTierSkill.skills).toEqual({ supported: 1, pending: 0, unsupported: 0 });
   });
@@ -681,7 +681,7 @@ describe("射手火晶技能数据", () => {
     expect(getTroopSkillsByTroopType("lancer")).toEqual([]);
   });
 
-  it("确认后的技能均为supported，连射为T7兵种技能且炽火凝星不是战斗叠层", () => {
+  it("确认后的技能均为supported，连射为T7兵种技能且炽火燧星不是战斗叠层", () => {
     const skills = getAllTroopSkills();
     expect(skills.every((skill) => skill.status === "supported")).toBe(true);
     expect(
@@ -694,7 +694,7 @@ describe("射手火晶技能数据", () => {
       skills.find((skill) => skill.name === "燃晶火药 Lv.2")?.trigger,
     ).toMatchObject({ type: "probability", probability: 0.3 });
     expect(
-      skills.find((skill) => skill.name === "炽火凝星 L24")?.effects[0],
+      skills.find((skill) => skill.name === "炽火燧星（射T12技能） L24")?.effects[0],
     ).toMatchObject({
       value: .12,
       activeRounds: [6,7,8,9,10],

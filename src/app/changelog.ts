@@ -6,6 +6,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG_ENTRIES: readonly ChangelogEntry[] = [
   {
+    version: "0.3",
+    date: "2026-09-10",
+    changes: [
+      "新增/完善多代射手车头英雄",
+      "完善概率、周期、易伤、暴击等技能规则",
+      "车头英雄下拉改为“英雄名（S代数）”",
+      "车头技能说明移至下方详情区域",
+      "重命名射手/矛兵T12技能",
+    ],
+  },
+  {
     version: "0.2",
     date: "2026-09-09",
     changes: [

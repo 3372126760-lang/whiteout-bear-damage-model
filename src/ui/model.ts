@@ -244,7 +244,7 @@ export const bodySkillOptions = getAllBodySkillOptions();
 // UI允许选择仍有有效英雄/专武数据但尚无可计算远征技能的英雄；
 // optimizableForBear 只约束自动优化候选，不得用来隐藏手动选择。
 export const headHeroOptions = getAllHeadHeroes();
-// 自动解锁的燃晶火药、火焰冲击与炽火凝星不再作为手动复选项，避免重复计入。
+// 自动解锁的燃晶火药、火焰冲击与炽火燧星不再作为手动复选项，避免重复计入。
 export const fireCrystalSkillOptions = getFireCrystalSkills().filter(() => false);
 
 export const hunterHeartLevelOptions = HUNTER_HEART_RATES.map((rate, level) =>
@@ -280,14 +280,7 @@ export function formatBodySkillOptionLabel(option: BodySkillOption): string {
 }
 
 export function formatHeadHeroOptionLabel(hero: HeadHeroDefinition): string {
-  const firstSupported = hero.headSkills.find((definition) => definition.status === "supported");
-  const primary = firstSupported?.status === "supported"
-    ? summarizeSkill(firstSupported.skill)
-    : describeExclusiveWeapon(hero);
-  const pendingSuffix = hero.headSkills.some((definition) => definition.status === "pending")
-    ? "（有待确认技能）"
-    : "";
-  return `${hero.name}${primary ? ` · ${primary}` : ""}${pendingSuffix}`;
+  return hero.generation === null ? hero.name : `${hero.name}（S${hero.generation}）`;
 }
 
 export function getSelectedHeroSkillDetails(form: CalculatorFormState): readonly UiHeroSkillDetail[] {
@@ -328,7 +321,11 @@ export function getSelectedHeroSkillDetails(form: CalculatorFormState): readonly
     const hero = getHeadHeroById(heroId as HeadHeroId);
     if (hero === undefined) continue;
     for (const definition of hero.headSkills) {
-      collectSkillDefinitionEffects(hero, definition, appliedEffects, details);
+      if (definition.status === "supported") {
+        details.push(toSupportedHeadSkillDetail(hero, definition));
+      } else {
+        collectSkillDefinitionEffects(hero, definition, appliedEffects, details);
+      }
     }
     for (const definition of hero.notApplicableToBearOutgoingDamage ?? []) {
       details.push({
@@ -871,8 +868,8 @@ function buildPreparationConfig(form: CalculatorFormState): BattlePreparationCon
       penetrationRate: rallyWeaponPenetrationRate,
     },
     troopSkillLevels: {
-      marksmanBlazingStarLevel: readIntegerInRange(form.preparation.marksmanBlazingStarLevel, "炽火凝星等级", 0, 24),
-      lancerT12SkillLevel: readIntegerInRange(form.preparation.lancerT12SkillLevel, "矛兵T12技能等级", 0, 24),
+      marksmanBlazingStarLevel: readIntegerInRange(form.preparation.marksmanBlazingStarLevel, "炽火燧星（射T12技能）等级", 0, 24),
+      lancerT12SkillLevel: readIntegerInRange(form.preparation.lancerT12SkillLevel, "烈辉战阵（矛T12技能）等级", 0, 24),
     },
   };
 }
@@ -1059,6 +1056,33 @@ interface AppliedEffectForUi {
   readonly effect: SkillEffect;
 }
 
+function toSupportedHeadSkillDetail(
+  hero: HeadHeroDefinition,
+  definition: Extract<HeroSkillDefinition, { readonly status: "supported" }>,
+): UiHeroSkillDetail {
+  const schedule = definition.skill.effects
+    .map((effect) => summarizeEffectSchedule(definition.skill, effect))
+    .filter(Boolean)
+    .filter((value, index, values) => values.indexOf(value) === index)
+    .join("；");
+  const metadata = [
+    definition.skill.critMultiplier === undefined
+      ? ""
+      : `暴击倍率 ×${definition.skill.critMultiplier}，仅作用普通攻击`,
+    definition.skill.normalAttackCounter === undefined
+      ? ""
+      : `${definition.skill.normalAttackCounter.troopType === "allIndependent" ? "各兵种" : TROOP_LABELS[definition.skill.normalAttackCounter.troopType]}普通攻击独立计数`,
+  ].filter(Boolean).join("；");
+  return {
+    ownerId: hero.id,
+    ownerName: hero.name,
+    skillName: cleanSkillName(definition.name),
+    status: "applied",
+    summary: [summarizeSkill(definition.skill), schedule, metadata].filter(Boolean).join("；"),
+    sourceSummary: hero.name,
+  };
+}
+
 function collectSkillDefinitionEffects(
   hero: BodyHeroDefinition | HeadHeroDefinition,
   definition: HeroSkillDefinition,
@@ -1157,7 +1181,16 @@ function summarizeEffectSchedule(skill: Skill, effect: SkillEffect): string {
     parts.push(`第 ${effect.activeRounds.join("、")} 回合生效`);
   }
   if (effect.valueByRound) parts.push("数值按回合变化");
-  if (effect.lifecycle?.activationTiming === "nextRound" || skill.lifecycle?.activationTiming === "nextRound") {
+  const lifecycle = effect.lifecycle ?? skill.lifecycle;
+  if (lifecycle?.durationRounds !== undefined) {
+    parts.push(`持续 ${lifecycle.durationRounds} 回合`);
+  }
+  if (lifecycle?.refreshMode === "refresh") parts.push("重复触发刷新持续时间");
+  if (lifecycle?.refreshMode === "replace") parts.push("重复触发覆盖旧效果");
+  if (lifecycle?.refreshMode === "stack") {
+    parts.push(`可叠加${lifecycle.maxStacks === undefined ? "" : `，最多 ${lifecycle.maxStacks} 层`}`);
+  }
+  if (lifecycle?.activationTiming === "nextRound") {
     parts.push("本回合施加，下一回合生效");
   }
   return parts.join("；");

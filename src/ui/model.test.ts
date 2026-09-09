@@ -134,13 +134,13 @@ describe("Stage 25 UI adapter",()=>{
     const nimo=headHeroOptions.find((hero)=>hero.id==="hero.head.nimo")!;
     expect(nimo.troopType).toBe("shield");
     expect(nimo.headSkills.map((definition)=>definition.name)).toEqual(["战前宣言","剑术指导","精湛剑术"]);
-    expect(formatHeadHeroOptionLabel(nimo)).toBe("尼莫 · 全军穿透 +25%");
+    expect(formatHeadHeroOptionLabel(nimo)).toBe("尼莫");
     const form=createLegacyPlayerFixture();
     const selected={...form,headHeroIds:{...form.headHeroIds,shield:nimo.id}};
     const details=getSelectedHeroSkillDetails(selected);
-    expect(details.some((detail)=>detail.sourceSummary?.includes("尼莫")&&detail.skillName.includes("穿透 +25%"))).toBe(true);
-    expect(details.some((detail)=>detail.sourceSummary?.includes("尼莫")&&detail.skillName.includes("攻击 +25%"))).toBe(true);
-    expect(details.some((detail)=>detail.sourceSummary?.includes("尼莫")&&detail.skillName.includes("伤害 +30%")&&detail.summary.includes("5、6、9、10"))).toBe(true);
+    expect(details.some((detail)=>detail.sourceSummary?.includes("尼莫")&&detail.skillName==="战前宣言"&&detail.summary.includes("穿透 +25%"))).toBe(true);
+    expect(details.some((detail)=>detail.sourceSummary?.includes("尼莫")&&detail.skillName==="剑术指导"&&detail.summary.includes("攻击 +25%"))).toBe(true);
+    expect(details.some((detail)=>detail.sourceSummary?.includes("尼莫")&&detail.skillName==="精湛剑术"&&detail.summary.includes("伤害 +30%")&&detail.summary.includes("5、6、9、10"))).toBe(true);
     expect(nimo.explorationSkills?.map((skill)=>skill.name)).toEqual(["三断斩","剑气","孤傲"]);
   });
   it("历史英雄专武类型数据仍保留但不驱动当前UI输入",()=>{

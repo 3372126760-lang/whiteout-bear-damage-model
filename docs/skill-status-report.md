@@ -4,7 +4,7 @@
 
 | 状态 | 技能数 | 效果数 |
 |---|---:|---:|
-| supported | 51 | 52 |
+| supported | 76 | 80 |
 | pending | 4 | 0 |
 | unsupported | 0 | 0 |
 
@@ -16,4 +16,4 @@ DATA_SOURCE_UNCERTAIN：丽娅拉、艾丝蒂拉、埃莉诺、弗洛拉的车�
 
 格温三个车头技能均为 supported：常规易伤从 round2 起生效；第6次普通攻击附加100% extraDamage；第8次普通攻击所在回合以15% vulnerable replace其他易伤。格温 pending 数量为 0。
 
-射手五项远程打击、连射、燃晶火药、火焰冲击、炽火凝星均为 supported。尼莫三断斩、剑气、孤傲已确认是 exploration，不计为 pending。只影响我方承伤或敌方输出的技能使用 notApplicableToBearOutgoingDamage，不计为 pending。
+射手五项远程打击、连射、燃晶火药、火焰冲击、炽火燧星（射T12技能）均为 supported。v0.3 本批十名射手车头没有 pending。尼莫三断斩、剑气、孤傲已确认是 exploration，不计为 pending。只影响我方承伤或敌方输出的技能使用 notApplicableToBearOutgoingDamage，不计为 pending。

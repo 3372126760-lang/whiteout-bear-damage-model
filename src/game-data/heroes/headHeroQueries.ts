@@ -10,7 +10,14 @@ import type { TroopType } from "../../domain/troop";
 import { headHeroes } from "./headHeroes";
 
 const allHeadHeroes: readonly HeadHeroDefinition[] = Object.freeze(
-  Object.values(headHeroes),
+  Object.values(headHeroes).sort((left, right) => {
+    const troopOrder = ["shield", "lancer", "marksman"];
+    const troopDifference = troopOrder.indexOf(left.troopType ?? "") - troopOrder.indexOf(right.troopType ?? "");
+    if (troopDifference !== 0) return troopDifference;
+    if (left.generation === null && right.generation !== null) return 1;
+    if (left.generation !== null && right.generation === null) return -1;
+    return (left.generation ?? 0) - (right.generation ?? 0) || left.name.localeCompare(right.name, "zh-CN");
+  }),
 );
 const heroesById: Readonly<Record<string, HeadHeroDefinition>> = headHeroes;
 

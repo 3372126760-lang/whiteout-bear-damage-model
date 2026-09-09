@@ -58,6 +58,20 @@ export interface BodyOptimizationResult {
   readonly effectSignatureCount: number;
   readonly combinationCount: number;
   readonly evaluatedCombinationCount: number;
+  /** 纯数值编译路径实际评分的BodyEffect数；回退时等于正式评分数。 */
+  readonly fastScoreCount: number;
+  /** 不含无车身基准、最终为结果详情调用正式十回合引擎的次数。 */
+  readonly detailedSimulationCount: number;
+  /** 实际进入通用damage/概率评分器的cache miss次数（含无车身基准）。 */
+  readonly formalSimulationCount: number;
+  readonly compiledFastPath: boolean;
+  readonly profiling: {
+    readonly candidateGenerationMs: number;
+    readonly bodyEffectCompilationMs: number;
+    readonly staticContextBuildMs: number;
+    readonly fastScoringMs: number;
+    readonly detailedMaterializationMs: number;
+  };
   readonly scoringMode: OptimizerScoringMode;
   readonly scoreMetric: "legacySingleRoundDamage" | "expectedTenRoundTotalDamage";
   readonly noBodyDamage: number;

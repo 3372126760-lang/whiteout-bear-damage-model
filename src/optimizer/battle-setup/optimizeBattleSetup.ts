@@ -12,7 +12,10 @@ import type { OptimizerScoringMode } from "../../domain/optimizerScoring";
 import type { TenRoundExpectedDamageInput, TenRoundExpectedDamageResult } from "../../domain/tenRoundExpectedDamage";
 import type { TroopCounts, TroopRatios } from "../../domain/troopRatioOptimization";
 import type { TroopType } from "../../domain/troop";
-import { scoreCurrentBearBattleTotalDamage } from "../../rulesets/bear/battle/calculateBearBattleTotalDamage";
+import {
+  calculateBearBattleTotalDamageFromSingleRound,
+  scoreCurrentBearBattleTotalDamage,
+} from "../../rulesets/bear/battle/calculateBearBattleTotalDamage";
 import { resolveSupportedBodyHeroCandidates } from "../body-heroes/resolveSupportedBodyHeroCandidates";
 import { resolveBodySkillOptionCandidates } from "../body-heroes/resolveBodySkillOptionCandidates";
 import { OPTIMIZER_MAX_COPIES_PER_BODY_SKILL } from "../body-heroes/optimizeBodyHeroes";
@@ -26,8 +29,20 @@ import { generateTroopRatioGrid } from "../troop-ratio/generateTroopRatioGrid";
 import type { TroopRatioOptimizationCandidateResult } from "../../domain/troopRatioOptimization";
 import { getHeroById } from "../../game-data/heroes/bodyHeroQueries";
 import { aggregateBodyEffect } from "../../game-data/body-skills";
+import {
+  compileBodyEffect,
+  compileBodySkillOptions,
+  scoreBodyTroopsFast,
+  simulateCompiledBodyDetails,
+  tryCreateStaticBodyBattleContext,
+  type CompiledBodyDetailedScore,
+  type CompiledBodyEffect,
+} from "../body-heroes/compiledBodyEvaluator";
 import { optimisticBodyFactorForTroop } from "../body-heroes/optimisticBodyBound";
-import { optimizeSeparableRatioGrid } from "../troop-ratio/optimizeSeparableRatioGrid";
+import {
+  optimizeSeparableRatioGrid,
+  solveExactRatioFromCoefficients,
+} from "../troop-ratio/optimizeSeparableRatioGrid";
 import { calculateMarchCapacity } from "../../systems/preparation";
 import {
   BattleSetupCountOverflowError,
@@ -95,15 +110,24 @@ function optimizeBattleSetupByBodyEffects(
   const scoringMode = options.scoringMode ?? DEFAULT_SCORING_MODE;
   validateOptions(bodyCount, topK);
 
+  const candidateGenerationStartedAt = performance.now();
   const bodyOptions = resolveBodySkillOptionCandidates(options.candidateHeroIds);
-  const bodyCombinations = combinationsWithReplacementLimited(
-    bodyOptions,
+  const compiledCombinations = combinationsWithReplacementLimited(
+    compileBodySkillOptions(bodyOptions),
     bodyCount,
     OPTIMIZER_MAX_COPIES_PER_BODY_SKILL,
   );
+  const candidateGenerationMs = performance.now() - candidateGenerationStartedAt;
+  const bodyEffectCompilationStartedAt = performance.now();
+  const compiledBodyCombinations = compiledCombinations.map(compileBodyEffect);
+  const bodyCombinations = compiledBodyCombinations.map((effect) => effect.options);
+  const bodyEffectCompilationMs = performance.now() - bodyEffectCompilationStartedAt;
   const best: BodyRatioCandidate[] = [];
   let ratioCandidateCount = 0;
   let fastScoreCount = 0;
+  let ratioSolverCallCount = 0;
+  let ratioSolverElapsedMs = 0;
+  let bodyCoefficientMs = 0;
   const evaluator = createOptimizerBattleEvaluator({
     calculateSingleRoundDamage: officialBattleSetupDependencies.calculateSingleRoundDamage,
     calculateTenRoundExpectedDamage,
@@ -125,61 +149,168 @@ function optimizeBattleSetupByBodyEffects(
       ...(input.enemyBaseDefense === undefined ? {} : { enemyBaseDefense: input.enemyBaseDefense }),
     });
   };
+  const staticContextStartedAt = performance.now();
   const noBodyReference = evaluateCounts(referenceCounts, []);
-  const noBodyCoefficients = coefficientsFromReference(referenceCounts, noBodyReference);
-  const effects = bodyCombinations
-    .map(aggregateBodyEffect)
-    .map((bodyEffect) => ({
-      bodyEffect,
-      upperBound: continuousScoreUpperBound(
-        allocationTotal,
-        Object.fromEntries(TROOP_TYPES.map((troopType) => [
-          troopType,
-          noBodyCoefficients[troopType] * optimisticBodyFactorForTroop(bodyEffect.skills, troopType),
-        ])) as Record<TroopType, number>,
-      ),
-    }))
-    .sort((left, right) => right.upperBound - left.upperBound || left.bodyEffect.signature.localeCompare(right.bodyEffect.signature));
-  const evaluationBySignature = new Map<string, ReturnType<typeof evaluateCounts>>();
+  const actualReferenceCounts = noBodyReference.expectedResult?.preparation?.troopCounts ?? referenceCounts;
+  const noBodyCoefficients = coefficientsFromReference(actualReferenceCounts, noBodyReference);
+  const staticContext = scoringMode === "tenRoundExpected" && noBodyReference.expectedResult !== undefined
+    ? tryCreateStaticBodyBattleContext(
+        createBattleInput(input, createTroops(input, referenceCounts), []),
+        noBodyReference.expectedResult,
+      )
+    : null;
+  const useCompiledFastPath = staticContext !== null;
+  const staticContextBuildMs = performance.now() - staticContextStartedAt;
 
-  for (const { bodyEffect, upperBound } of effects) {
-    if (
-      best.length >= topK &&
-      upperBound < best[best.length - 1]!.ratioCandidate.score - Math.max(1, Math.abs(upperBound)) * 1e-12
-    ) break;
-    const heroIds = bodyEffect.representativeHeroIds;
-    let referenceEvaluation = evaluationBySignature.get(bodyEffect.signature);
-    if (referenceEvaluation === undefined) {
-      referenceEvaluation = evaluateCounts(referenceCounts, heroIds);
-      evaluationBySignature.set(bodyEffect.signature, referenceEvaluation);
+  if (staticContext !== null) {
+    const bodyTopResults: Array<{
+      readonly bodyEffect: CompiledBodyEffect;
+      readonly coefficients: Readonly<Record<TroopType, number>>;
+      readonly top: Pick<
+        TroopRatioOptimizationCandidateResult,
+        "rank" | "ratios" | "troopCounts" | "score"
+      >;
+    }> = [];
+    for (const bodyEffect of compiledBodyCombinations) {
+      const coefficientStartedAt = performance.now();
+      const fastBodyScore = scoreBodyTroopsFast(staticContext, bodyEffect);
+      const coefficients = coefficientsFromTroopScores(actualReferenceCounts, fastBodyScore.troopDamages);
+      bodyCoefficientMs += performance.now() - coefficientStartedAt;
+      const ratioStartedAt = performance.now();
+      const ratioResult = solveExactRatioFromCoefficients({
+        totalTroopCount: allocationTotal,
+        coefficients,
+        stepPercent: ratioStepPercent,
+        topK: 1,
+        ...(options.minimumRatios === undefined ? {} : { minimumRatios: options.minimumRatios }),
+        ...(options.maximumRatios === undefined ? {} : { maximumRatios: options.maximumRatios }),
+      });
+      ratioSolverElapsedMs += performance.now() - ratioStartedAt;
+      ratioSolverCallCount += 1;
+      ratioCandidateCount = ratioResult.theoreticalRatioCount;
+      fastScoreCount += ratioResult.fastScoreCount;
+      const top = ratioResult.results[0];
+      if (top !== undefined) bodyTopResults.push({
+        bodyEffect,
+        coefficients,
+        top: { ...top, rank: 1 },
+      });
     }
-    const coefficients = coefficientsFromReference(referenceCounts, referenceEvaluation);
-    const ratioResult = optimizeSeparableRatioGrid({
-      totalTroopCount: allocationTotal,
-      coefficients,
-      stepPercent: ratioStepPercent,
-      topK,
-      ...(options.minimumRatios === undefined ? {} : { minimumRatios: options.minimumRatios }),
-      ...(options.maximumRatios === undefined ? {} : { maximumRatios: options.maximumRatios }),
-    });
-    ratioCandidateCount = ratioResult.theoreticalRatioCount;
-    fastScoreCount += ratioResult.fastScoreCount;
-    for (const ratioCandidate of ratioResult.results) {
-      insertBodyRatioCandidate(best, {
-        combination: bodyEffect.options,
-        heroIds,
-        ratioCandidate: {
-          rank: 0,
-          ratios: ratioCandidate.ratios,
-          troopCounts: ratioCandidate.troopCounts,
-          score: ratioCandidate.score,
-        },
-      }, topK);
+    bodyTopResults.sort((left, right) => (
+      right.top.score - left.top.score ||
+      left.bodyEffect.numericSignature - right.bodyEffect.numericSignature
+    ));
+    const cutoffIndex = Math.min(topK, bodyTopResults.length) - 1;
+    const cutoffScore = cutoffIndex < 0
+      ? Number.NEGATIVE_INFINITY
+      : bodyTopResults[cutoffIndex]!.top.score;
+    const contenderTolerance = Math.max(1, Math.abs(cutoffScore)) * 1e-12;
+    const contenders = bodyTopResults.filter((entry) => entry.top.score >= cutoffScore - contenderTolerance);
+    for (const entry of contenders) {
+      const ratioStartedAt = performance.now();
+      const ratioResult = topK === 1
+        ? { results: [entry.top], fastScoreCount: 0 }
+        : solveExactRatioFromCoefficients({
+            totalTroopCount: allocationTotal,
+            coefficients: entry.coefficients,
+            stepPercent: ratioStepPercent,
+            topK,
+            ...(options.minimumRatios === undefined ? {} : { minimumRatios: options.minimumRatios }),
+            ...(options.maximumRatios === undefined ? {} : { maximumRatios: options.maximumRatios }),
+          });
+      ratioSolverElapsedMs += performance.now() - ratioStartedAt;
+      if (topK !== 1) ratioSolverCallCount += 1;
+      fastScoreCount += ratioResult.fastScoreCount;
+      for (const ratioCandidate of ratioResult.results) {
+        insertBodyRatioCandidate(best, {
+          combination: entry.bodyEffect.options,
+          heroIds: entry.bodyEffect.representativeHeroIds,
+          compiledEffect: entry.bodyEffect,
+          ratioCandidate: {
+            rank: 0,
+            ratios: ratioCandidate.ratios,
+            troopCounts: ratioCandidate.troopCounts,
+            score: ratioCandidate.score,
+          },
+        }, topK);
+      }
+    }
+  } else {
+    const effects = bodyCombinations
+      .map(aggregateBodyEffect)
+      .map((bodyEffect) => ({
+        bodyEffect,
+        upperBound: continuousScoreUpperBound(
+          allocationTotal,
+          Object.fromEntries(TROOP_TYPES.map((troopType) => [
+            troopType,
+            noBodyCoefficients[troopType] * optimisticBodyFactorForTroop(bodyEffect.skills, troopType),
+          ])) as Record<TroopType, number>,
+        ),
+      }))
+      .sort((left, right) => right.upperBound - left.upperBound || left.bodyEffect.signature.localeCompare(right.bodyEffect.signature));
+    const evaluationBySignature = new Map<string, ReturnType<typeof evaluateCounts>>();
+    for (const { bodyEffect, upperBound } of effects) {
+      if (
+        best.length >= topK &&
+        upperBound < best[best.length - 1]!.ratioCandidate.score - Math.max(1, Math.abs(upperBound)) * 1e-12
+      ) break;
+      const heroIds = bodyEffect.representativeHeroIds;
+      const coefficientStartedAt = performance.now();
+      let referenceEvaluation = evaluationBySignature.get(bodyEffect.signature);
+      if (referenceEvaluation === undefined) {
+        referenceEvaluation = evaluateCounts(referenceCounts, heroIds);
+        evaluationBySignature.set(bodyEffect.signature, referenceEvaluation);
+      }
+      const coefficients = coefficientsFromReference(actualReferenceCounts, referenceEvaluation);
+      bodyCoefficientMs += performance.now() - coefficientStartedAt;
+      const ratioStartedAt = performance.now();
+      const ratioResult = optimizeSeparableRatioGrid({
+        totalTroopCount: allocationTotal,
+        coefficients,
+        stepPercent: ratioStepPercent,
+        topK,
+        ...(options.minimumRatios === undefined ? {} : { minimumRatios: options.minimumRatios }),
+        ...(options.maximumRatios === undefined ? {} : { maximumRatios: options.maximumRatios }),
+      });
+      ratioSolverElapsedMs += performance.now() - ratioStartedAt;
+      ratioSolverCallCount += 1;
+      ratioCandidateCount = ratioResult.theoreticalRatioCount;
+      fastScoreCount += ratioResult.fastScoreCount;
+      for (const ratioCandidate of ratioResult.results) {
+        insertBodyRatioCandidate(best, {
+          combination: bodyEffect.options,
+          heroIds,
+          ratioCandidate: {
+            rank: 0,
+            ratios: ratioCandidate.ratios,
+            troopCounts: ratioCandidate.troopCounts,
+            score: ratioCandidate.score,
+          },
+        }, topK);
+      }
     }
   }
+  const detailedMaterializationStartedAt = performance.now();
   const detailed = best.map((candidate, index) => {
-    const evaluation = evaluateCounts(candidate.ratioCandidate.troopCounts, candidate.heroIds);
-    const noBody = evaluateCounts(candidate.ratioCandidate.troopCounts, []);
+    const compiledDetails = staticContext !== null && candidate.compiledEffect !== undefined
+      ? simulateCompiledBodyDetails(
+          staticContext,
+          candidate.compiledEffect,
+          candidate.ratioCandidate.troopCounts,
+        )
+      : undefined;
+    const candidateInput = createBattleInput(
+      input,
+      createTroops(input, candidate.ratioCandidate.troopCounts),
+      candidate.heroIds,
+    );
+    const evaluation = compiledDetails === undefined
+      ? evaluateCounts(candidate.ratioCandidate.troopCounts, candidate.heroIds)
+      : createCompiledEvaluation(candidateInput, compiledDetails.totalDamage, input.enemyBaseDefense);
+    const noBodyScore = useCompiledFastPath
+      ? scoreCountsFromCoefficients(candidate.ratioCandidate.troopCounts, noBodyCoefficients)
+      : evaluateCounts(candidate.ratioCandidate.troopCounts, []).score;
     const heroes = candidate.heroIds.map((heroId) => {
       const hero = getHeroById(heroId);
       if (hero === undefined || hero.status !== "supported") throw new Error(`车身代表英雄不可用：${heroId}。`);
@@ -191,12 +322,14 @@ function optimizeBattleSetupByBodyEffects(
       heroes,
       heroIds: candidate.heroIds,
       evaluation,
-      noBodyScore: noBody.score,
-    }, index + 1);
+      noBodyScore,
+    }, index + 1, compiledDetails, noBodyReference.expectedResult);
   });
+  const detailedMaterializationMs = performance.now() - detailedMaterializationStartedAt;
   const elapsedMs = performance.now() - startedAt;
   const cache = evaluator.cache.statistics();
   const cartesianCandidateCount = ratioCandidateCount * bodyCombinations.length;
+  const evaluatedSetupCount = Math.min(cartesianCandidateCount, fastScoreCount);
   return {
     ratioStepPercent,
     bodyCount,
@@ -206,8 +339,23 @@ function optimizeBattleSetupByBodyEffects(
     ratioCandidateCount,
     bodyCombinationCount: bodyCombinations.length,
     cartesianCandidateCount,
-    evaluatedSetupCount: fastScoreCount,
-    skippedCount: cartesianCandidateCount - fastScoreCount,
+    evaluatedSetupCount,
+    fastScoreCount,
+    bodyEffectCount: compiledBodyCombinations.length,
+    ratioSolverCallCount,
+    ratioSolverElapsedMs,
+    detailedSimulationCount: detailed.length,
+    formalSimulationCount: cache.cacheMisses,
+    compiledFastPath: useCompiledFastPath,
+    profiling: {
+      candidateGenerationMs,
+      bodyEffectCompilationMs,
+      staticContextBuildMs,
+      bodyCoefficientMs,
+      ratioSolverMs: ratioSolverElapsedMs,
+      detailedMaterializationMs,
+    },
+    skippedCount: cartesianCandidateCount - evaluatedSetupCount,
     elapsedMs,
     stats: {
       candidateCount: cartesianCandidateCount,
@@ -224,6 +372,7 @@ function optimizeBattleSetupByBodyEffects(
 interface BodyRatioCandidate {
   readonly combination: readonly import("../../domain/bodySkillOption").BodySkillOption[];
   readonly heroIds: readonly BodyHeroId[];
+  readonly compiledEffect?: CompiledBodyEffect;
   readonly ratioCandidate: Pick<TroopRatioOptimizationCandidateResult, "rank" | "ratios" | "troopCounts" | "score">;
 }
 
@@ -241,6 +390,26 @@ function coefficientsFromReference(
     lancer: counts.lancer === 0 ? 0 : expected.lancer / Math.sqrt(counts.lancer),
     marksman: counts.marksman === 0 ? 0 : expected.marksman / Math.sqrt(counts.marksman),
   };
+}
+
+function coefficientsFromTroopScores(
+  counts: TroopCounts,
+  troopDamages: Readonly<Record<TroopType, number>>,
+): Readonly<Record<TroopType, number>> {
+  return Object.fromEntries(TROOP_TYPES.map((troopType) => [
+    troopType,
+    counts[troopType] === 0 ? 0 : troopDamages[troopType] / Math.sqrt(counts[troopType]),
+  ])) as Record<TroopType, number>;
+}
+
+function scoreCountsFromCoefficients(
+  counts: TroopCounts,
+  coefficients: Readonly<Record<TroopType, number>>,
+): number {
+  return TROOP_TYPES.reduce(
+    (total, troopType) => total + coefficients[troopType] * Math.sqrt(counts[troopType]),
+    0,
+  );
 }
 
 function continuousScoreUpperBound(
@@ -385,6 +554,21 @@ export function createBattleSetupOptimizer(
       bodyCombinationCount: heroCombinations.length,
       cartesianCandidateCount,
       evaluatedSetupCount,
+      fastScoreCount: evaluatedSetupCount,
+      bodyEffectCount: heroCombinations.length,
+      ratioSolverCallCount: 0,
+      ratioSolverElapsedMs: 0,
+      detailedSimulationCount: results.length,
+      formalSimulationCount: cache.cacheMisses,
+      compiledFastPath: false,
+      profiling: {
+        candidateGenerationMs: 0,
+        bodyEffectCompilationMs: 0,
+        staticContextBuildMs: 0,
+        bodyCoefficientMs: 0,
+        ratioSolverMs: 0,
+        detailedMaterializationMs: 0,
+      },
       skippedCount: 0,
       elapsedMs,
       stats: {
@@ -473,6 +657,8 @@ function compareCandidates(left: EvaluatedSetup, right: EvaluatedSetup): number 
 function createResult(
   candidate: EvaluatedSetup,
   rank: number,
+  compiledDetails?: CompiledBodyDetailedScore,
+  fixedExpectedResult?: TenRoundExpectedDamageResult,
 ): BattleSetupOptimizationCandidateResult {
   const { evaluation } = candidate;
   const singleRoundTroopDamages: Record<TroopType, number> = {
@@ -489,7 +675,7 @@ function createResult(
   for (const troopType of TROOP_TYPES) {
     singleRoundTroopDamages[troopType] =
       evaluation.singleRoundResult.troopDamages[troopType]?.finalDamage ?? 0;
-    troopDamages[troopType] =
+    troopDamages[troopType] = compiledDetails?.troopDamages[troopType] ??
       evaluation.expectedResult?.expectedDamageByTroop[troopType] ??
       evaluation.deterministicTenRoundResult.rounds.reduce(
         (sum, round) =>
@@ -505,11 +691,13 @@ function createResult(
       evaluation.singleRoundResult.troopDamages[troopType]?.multipliers;
     if (multiplier !== undefined) multipliers[troopType] = multiplier;
   }
-  const improvementAbsolute = evaluation.score - candidate.noBodyScore;
+  const score = compiledDetails?.totalDamage ?? evaluation.score;
+  const improvementAbsolute = score - candidate.noBodyScore;
   const improvementRatio =
     candidate.noBodyScore === 0
       ? null
-      : evaluation.score / candidate.noBodyScore - 1;
+      : score / candidate.noBodyScore - 1;
+  const reportSource = evaluation.expectedResult ?? fixedExpectedResult;
 
   return {
     rank,
@@ -517,15 +705,15 @@ function createResult(
     troopCounts: candidate.troopCounts,
     heroes: candidate.heroes,
     heroIds: candidate.heroIds,
-    totalDamage: evaluation.score,
-    expectedTenRoundDamage: evaluation.expectedTenRoundDamage,
+    totalDamage: score,
+    expectedTenRoundDamage: compiledDetails?.totalDamage ?? evaluation.expectedTenRoundDamage,
     expectedDamageByRound:
-      evaluation.expectedResult?.expectedDamageByRound ?? [],
+      compiledDetails?.expectedDamageByRound ?? evaluation.expectedResult?.expectedDamageByRound ?? [],
     singleRoundDamage: evaluation.singleRoundResult.finalDamage,
     troopDamages,
     singleRoundTroopDamages,
     multipliers,
-    score: evaluation.score,
+    score,
     improvementAbsolute,
     improvementRatio,
     ...(improvementRatio === null
@@ -534,8 +722,27 @@ function createResult(
     singleRoundResult: evaluation.singleRoundResult,
     battleTotalResult: evaluation.deterministicTenRoundResult,
     skippedPendingSkills:
-      evaluation.expectedResult?.skippedPendingSkills ?? [],
-    unsupportedSkills: evaluation.expectedResult?.unsupportedSkills ?? [],
+      reportSource?.skippedPendingSkills ?? [],
+    unsupportedSkills: reportSource?.unsupportedSkills ?? [],
+  };
+}
+
+function createCompiledEvaluation(
+  input: TenRoundExpectedDamageInput,
+  expectedTenRoundDamage: number,
+  enemyBaseDefense: number | undefined,
+): OptimizerBattleEvaluation {
+  const { fireCrystal: _fireCrystal, preparation: _preparation, ...singleRoundInput } = input;
+  const singleRoundResult = calculateBattleDamage(singleRoundInput);
+  const deterministicTenRoundResult = calculateBearBattleTotalDamageFromSingleRound(
+    singleRoundResult,
+    enemyBaseDefense === undefined ? {} : { enemyBaseDefense },
+  );
+  return {
+    score: expectedTenRoundDamage,
+    singleRoundResult,
+    deterministicTenRoundResult,
+    expectedTenRoundDamage,
   };
 }
 

@@ -76,6 +76,23 @@ export interface BattleSetupOptimizationResult {
   readonly bodyCombinationCount: number;
   readonly cartesianCandidateCount: number;
   readonly evaluatedSetupCount: number;
+  /** 包含两阶段exact求解中用于证明/排名的纯数值评分次数。 */
+  readonly fastScoreCount: number;
+  readonly bodyEffectCount: number;
+  readonly ratioSolverCallCount: number;
+  readonly ratioSolverElapsedMs: number;
+  readonly detailedSimulationCount: number;
+  /** 实际进入通用damage/概率评分器的cache miss次数（含无车身基准）。 */
+  readonly formalSimulationCount: number;
+  readonly compiledFastPath: boolean;
+  readonly profiling: {
+    readonly candidateGenerationMs: number;
+    readonly bodyEffectCompilationMs: number;
+    readonly staticContextBuildMs: number;
+    readonly bodyCoefficientMs: number;
+    readonly ratioSolverMs: number;
+    readonly detailedMaterializationMs: number;
+  };
   readonly skippedCount: number;
   readonly elapsedMs: number;
   readonly stats: OptimizationPerformanceStats;

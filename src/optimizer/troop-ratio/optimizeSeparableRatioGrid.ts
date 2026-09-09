@@ -14,6 +14,7 @@ import { decimalUnitsToNumber, toCommonDecimalUnits } from "./decimalUnits";
 
 const TROOP_TYPES: readonly TroopType[] = ["shield", "lancer", "marksman"];
 const UPPER_BOUND_EPSILON = 1e-10;
+const feasibleRatioCountCache = new Map<string, number>();
 
 export interface SeparableRatioGridInput {
   readonly totalTroopCount: number;
@@ -66,8 +67,31 @@ interface SearchRegion {
 export function optimizeSeparableRatioGrid(
   input: SeparableRatioGridInput,
 ): SeparableRatioGridResult {
+  return solveExactRatioFromCoefficients(input);
+}
+
+/** 正式轻量求解器：连续最优附近预热TopK，再由完整分支上界证明全局exact。 */
+export function solveExactRatioFromCoefficients(
+  input: SeparableRatioGridInput,
+): SeparableRatioGridResult {
+  return optimizeSeparableRatioGridInternal(input, true);
+}
+
+/** 未预热、未复用网格计数的旧exact路径，仅用于Golden Test参照。 */
+export function referenceExactRatioSolver(
+  input: SeparableRatioGridInput,
+): SeparableRatioGridResult {
+  return optimizeSeparableRatioGridInternal(input, false);
+}
+
+function optimizeSeparableRatioGridInternal(
+  input: SeparableRatioGridInput,
+  fast: boolean,
+): SeparableRatioGridResult {
   const grid = createGridDefinition(input);
-  const theoreticalRatioCount = countFeasibleRatios(grid);
+  const theoreticalRatioCount = fast
+    ? cachedFeasibleRatioCount(grid)
+    : countFeasibleRatios(grid);
   if (theoreticalRatioCount === 0) throw new NoFeasibleTroopRatioError();
   if (TROOP_TYPES.every((troopType) => input.coefficients[troopType] === 0)) {
     const results = zeroScoreTopK(input.totalTroopCount, input.topK, grid);
@@ -83,9 +107,15 @@ export function optimizeSeparableRatioGrid(
 
   const best: SeparableRatioCandidate[] = [];
   const countScoreCache = new Map<string, number>();
+  const seenRatioKeys = new Set<string>();
   const heap: SearchRegion[] = [];
   let fastScoreCount = 0;
   let exploredRegionCount = 0;
+
+  if (fast) {
+    seedCandidatesNearContinuousOptimum(best, countScoreCache, seenRatioKeys, grid, input);
+    fastScoreCount = countScoreCache.size;
+  }
 
   const root = createRegion(
     grid.minimumTicks.shield,
@@ -114,6 +144,9 @@ export function optimizeSeparableRatioGrid(
         marksmanTick < grid.minimumTicks.marksman ||
         marksmanTick > grid.maximumTicks.marksman
       ) continue;
+      const ratioKey = `${region.shieldLow}|${region.lancerLow}`;
+      if (seenRatioKeys.has(ratioKey)) continue;
+      seenRatioKeys.add(ratioKey);
       const ratios = ticksToRatios(region.shieldLow, region.lancerLow, grid);
       const troopCounts = allocateTroopsByRatio(input.totalTroopCount, ratios);
       const signature = `${troopCounts.shield}|${troopCounts.lancer}|${troopCounts.marksman}`;
@@ -148,6 +181,80 @@ export function optimizeSeparableRatioGrid(
     exploredRegionCount,
     ratioScale: grid.tickCount,
   };
+}
+
+function cachedFeasibleRatioCount(grid: GridDefinition): number {
+  const key = [
+    grid.tickCount,
+    ...TROOP_TYPES.flatMap((type) => [grid.minimumTicks[type], grid.maximumTicks[type]]),
+  ].join("|");
+  const cached = feasibleRatioCountCache.get(key);
+  if (cached !== undefined) return cached;
+  const count = countFeasibleRatios(grid);
+  feasibleRatioCountCache.set(key, count);
+  return count;
+}
+
+function seedCandidatesNearContinuousOptimum(
+  best: SeparableRatioCandidate[],
+  countScoreCache: Map<string, number>,
+  seenRatioKeys: Set<string>,
+  grid: GridDefinition,
+  input: SeparableRatioGridInput,
+): void {
+  const ideal = continuousTickAllocation(grid, input.coefficients);
+  const shieldCenter = Math.round(ideal.shield);
+  const lancerCenter = Math.round(ideal.lancer);
+  const radius = Math.max(2, Math.ceil(Math.sqrt(input.topK)));
+  for (let shield = shieldCenter - radius; shield <= shieldCenter + radius; shield += 1) {
+    if (shield < grid.minimumTicks.shield || shield > grid.maximumTicks.shield) continue;
+    for (let lancer = lancerCenter - radius; lancer <= lancerCenter + radius; lancer += 1) {
+      if (lancer < grid.minimumTicks.lancer || lancer > grid.maximumTicks.lancer) continue;
+      const marksman = grid.tickCount - shield - lancer;
+      if (marksman < grid.minimumTicks.marksman || marksman > grid.maximumTicks.marksman) continue;
+      seenRatioKeys.add(`${shield}|${lancer}`);
+      const ratios = ticksToRatios(shield, lancer, grid);
+      const troopCounts = allocateTroopsByRatio(input.totalTroopCount, ratios);
+      const signature = `${troopCounts.shield}|${troopCounts.lancer}|${troopCounts.marksman}`;
+      let score = countScoreCache.get(signature);
+      if (score === undefined) {
+        score = scoreCounts(troopCounts, input.coefficients);
+        countScoreCache.set(signature, score);
+      }
+      insertCandidate(best, { ratios, troopCounts, score }, input.topK);
+    }
+  }
+}
+
+function continuousTickAllocation(
+  grid: GridDefinition,
+  coefficients: Readonly<Record<TroopType, number>>,
+): Record<TroopType, number> {
+  const allocation = { ...grid.minimumTicks } as Record<TroopType, number>;
+  let remaining = grid.tickCount - TROOP_TYPES.reduce((sum, type) => sum + allocation[type], 0);
+  let free = [...TROOP_TYPES];
+  while (free.length > 0 && remaining > 1e-12) {
+    const weight = free.reduce((sum, type) => sum + coefficients[type] ** 2, 0);
+    let capped = false;
+    for (const type of free) {
+      const share = weight === 0 ? remaining / free.length : remaining * coefficients[type] ** 2 / weight;
+      const room = grid.maximumTicks[type] - allocation[type];
+      if (share > room + 1e-12) {
+        allocation[type] += room;
+        remaining -= room;
+        free = free.filter((candidate) => candidate !== type);
+        capped = true;
+        break;
+      }
+    }
+    if (capped) continue;
+    for (const type of free) {
+      const share = weight === 0 ? remaining / free.length : remaining * coefficients[type] ** 2 / weight;
+      allocation[type] += share;
+    }
+    remaining = 0;
+  }
+  return allocation;
 }
 
 function zeroScoreTopK(
@@ -283,7 +390,8 @@ function boxedContinuousUpperBound(
     TROOP_TYPES.reduce((sum, type) => sum + highs[type], 0) < total
   ) return Number.NEGATIVE_INFINITY;
 
-  // 三个变量只有 low/free/high 三种KKT状态；枚举27种活动集比逐节点二分快得多。
+  // 三个变量只有 low/free/high 三种KKT状态。枚举27种活动集得到严格连续上界，
+  // 不采用“只看连续最优附近”的未经证明近似。
   let value = Number.NEGATIVE_INFINITY;
   for (let mask = 0; mask < 27; mask += 1) {
     let encoded = mask;
@@ -318,17 +426,14 @@ function boxedContinuousUpperBound(
         }
         if (Math.abs(left) > 1e-8) continue;
       } else {
-        for (const type of free) {
-          allocation[type] = remaining * coefficients[type] ** 2 / weight;
-        }
+        for (const type of free) allocation[type] = remaining * coefficients[type] ** 2 / weight;
       }
     }
     if (TROOP_TYPES.some((type) => allocation[type] < lows[type] - 1e-8 || allocation[type] > highs[type] + 1e-8)) continue;
-    const candidate = TROOP_TYPES.reduce(
+    value = Math.max(value, TROOP_TYPES.reduce(
       (sum, type) => sum + coefficients[type] * Math.sqrt(Math.max(0, allocation[type])),
       0,
-    );
-    value = Math.max(value, candidate);
+    ));
   }
   return value + Math.max(1, Math.abs(value)) * UPPER_BOUND_EPSILON;
 }

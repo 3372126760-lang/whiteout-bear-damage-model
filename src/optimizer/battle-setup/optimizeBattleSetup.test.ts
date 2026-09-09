@@ -101,6 +101,18 @@ describe("optimizeBattleSetup", () => {
     );
   });
 
+  it("完整九类车身只构建一次正式基准，并为每个BodyEffect调用轻量exact比例求解器", () => {
+    const result = optimizeBattleSetup(testInput, { bodyCount: 4, topK: 3 });
+    expect(result.bodyCombinationCount).toBe(414);
+    expect(result.bodyEffectCount).toBe(414);
+    expect(result.ratioSolverCallCount).toBeGreaterThanOrEqual(414);
+    expect(result.ratioSolverCallCount).toBeLessThanOrEqual(417);
+    expect(result.formalSimulationCount).toBe(1);
+    expect(result.detailedSimulationCount).toBe(3);
+    expect(result.compiledFastPath).toBe(true);
+    expect(result.ratioSolverElapsedMs).toBeGreaterThanOrEqual(0);
+  }, 30_000);
+
   it("所有结果兵数严格守恒且车身全部来自 supported 数据", () => {
     const supportedIds = new Set(
       getSupportedBodyHeroes().map((hero) => hero.id),

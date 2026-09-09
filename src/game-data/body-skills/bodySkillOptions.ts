@@ -12,12 +12,7 @@ interface OptionSeed {
 
 const seeds: readonly OptionSeed[] = [
   { id: "body-skill.attack-25", label: "全军攻击 +25%", representativeHeroId: "hero.body.shuyun" },
-  {
-    id: "body-skill.defense-25",
-    label: "全军防御 +25%",
-    representativeHeroId: null,
-    notes: ["我方防御不增加当前对熊输出；来源英雄资料尚未提供。"],
-  },
+  { id: "body-skill.penetration-25", label: "全军穿透 +25%", representativeHeroId: "hero.body.jiexi" },
   { id: "body-skill.defense-reduction-25", label: "敌军防御 -25%", representativeHeroId: "hero.body.hengdelike" },
   { id: "body-skill.damage-20", label: "全军伤害 +20%", representativeHeroId: "hero.body.suoniya" },
   { id: "body-skill.vulnerable-25", label: "易伤 +25%", representativeHeroId: "hero.body.gewen" },

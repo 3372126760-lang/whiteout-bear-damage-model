@@ -9,7 +9,9 @@
 
 ## 网格
 
-默认 `stepPercent = 0.01`，理论网格共有 50,015,001 个比例点。比例继续使用整数 tick，不通过浮点数反复累加。正式入口利用 `ΣKi√ni` 的凹可分离结构和严格连续上界做 exact 分支定界，不逐点运行5000万次战斗模拟。步长必须能够整除 100，确保三个兵种处于同一个对称网格。
+默认 `stepPercent = 0.01`，理论网格共有 50,015,001 个比例点。比例继续使用整数 tick，不通过浮点数反复累加。正式入口利用 `ΣKi√ni` 的凹可分离结构和严格连续上界做 exact 分支定界，不逐点运行5000万次战斗模拟。连续最优 `Ki² / ΣKi²` 只用于提供 warm seed；最终结果仍由完整分支定界证明。步长必须能够整除 100，确保三个兵种处于同一个对称网格。
+
+实现分为两层：`solveExactRatioFromCoefficients()` 接受 `Ks/Kl/Km` 与容量并执行轻量数值求解；`referenceExactRatioSolver()` 保留未使用 warm/count cache 的参考实现，仅用于测试。可行比例总数按约束缓存，不参与伤害语义。
 
 默认边界为每个兵种 0%～100%。`minimumRatios` 和 `maximumRatios` 只过滤候选，不改变伤害公式。
 
@@ -30,4 +32,4 @@
 
 固定的 `headFormation` 与 `fireCrystal` 会随每个比例候选进入同一个十回合引擎。pending效果会出现在跳过报告中。缓存与性能统计见 [ten-round-optimizer-scoring.md](./ten-round-optimizer-scoring.md)。
 
-数学证明、largest-remainder 下的上界和 Golden Test 见 [body-skill-options-v0.1.md](./body-skill-options-v0.1.md)。
+数学证明、largest-remainder 下的上界和 Golden Test 见 [body-skill-options-v0.1.md](./body-skill-options-v0.1.md)。快速求解器还通过 1,000 组随机系数与容量对照参考求解器；比例、实际整数兵数、伤害及稳定排序全部一致。

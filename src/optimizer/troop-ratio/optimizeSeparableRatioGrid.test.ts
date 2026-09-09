@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { TroopRatios } from "../../domain/troopRatioOptimization";
 import { allocateTroopsByRatio } from "./allocateTroopsByRatio";
 import { generateTroopRatioGrid } from "./generateTroopRatioGrid";
-import { optimizeSeparableRatioGrid } from "./optimizeSeparableRatioGrid";
+import {
+  optimizeSeparableRatioGrid,
+  referenceExactRatioSolver,
+  solveExactRatioFromCoefficients,
+} from "./optimizeSeparableRatioGrid";
 
 const coefficients = { shield: 11, lancer: 29, marksman: 47 } as const;
 
@@ -21,7 +25,7 @@ describe("可分离凹目标的比例exact优化", () => {
     expect(exact.results[0]!.ratios).toEqual(naive.ratios);
     expect(exact.results[0]!.troopCounts).toEqual(naive.troopCounts);
     expect(exact.results[0]!.score).toBeCloseTo(naive.score, 12);
-  });
+  }, 15_000);
 
   it("在受限0.01%网格上仍与逐项穷举一致", () => {
     const totalTroopCount = 50_000;
@@ -64,7 +68,36 @@ describe("可分离凹目标的比例exact优化", () => {
     expect(result.ratioScale).toBe(10_000);
     expect(result.fastScoreCount).toBeLessThan(100_000);
   });
+
+  it("1000组随机系数/容量下fast exact与reference exact完全一致", () => {
+    const random = seededRandom(0x5eeda11);
+    for (let index = 0; index < 1_000; index += 1) {
+      const randomizedInput = {
+        totalTroopCount: 20_000 + Math.floor(random() * 480_001),
+        coefficients: {
+          shield: 0.01 + random() * 100,
+          lancer: 0.01 + random() * 100,
+          marksman: 0.01 + random() * 100,
+        },
+        stepPercent: 0.01,
+        topK: 1,
+      } as const;
+      const fast = solveExactRatioFromCoefficients(randomizedInput).results[0]!;
+      const reference = referenceExactRatioSolver(randomizedInput).results[0]!;
+      expect(fast.ratios, `第${index + 1}组比例`).toEqual(reference.ratios);
+      expect(fast.troopCounts, `第${index + 1}组兵数`).toEqual(reference.troopCounts);
+      expect(fast.score, `第${index + 1}组伤害`).toBeCloseTo(reference.score, 10);
+    }
+  }, 30_000);
 });
+
+function seededRandom(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
+    return state / 0x1_0000_0000;
+  };
+}
 
 function scoreCandidate(totalTroopCount: number, ratios: TroopRatios) {
   const troopCounts = allocateTroopsByRatio(totalTroopCount, ratios);

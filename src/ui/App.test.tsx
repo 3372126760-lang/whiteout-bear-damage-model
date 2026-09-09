@@ -74,7 +74,10 @@ describe("计算器UI有限选项与技能说明", () => {
   it("英雄选项不显示内部状态或确认数量，已确认的米娅幸运加护直接展示", () => {
     render(<CalculatorApp />);
     const body = screen.getByLabelText("车身 1") as HTMLSelectElement;
-    expect([...body.options].map((option) => option.textContent).join("\n")).not.toMatch(/supported|pending|已确认\/|\d+已确认/);
+    const bodyLabels = [...body.options].map((option) => option.textContent);
+    expect(bodyLabels).toContain("全军穿透 +25%");
+    expect(bodyLabels).not.toContain("全军防御 +25%");
+    expect(bodyLabels.join("\n")).not.toMatch(/supported|pending|已确认\/|\d+已确认/);
     const lancerHead = screen.getByLabelText("矛兵车头") as HTMLSelectElement;
     fireEvent.change(lancerHead, { target: { value: "hero.head.miya" } });
     expect(screen.getAllByText("【全军伤害 +50%】").length).toBeGreaterThan(0);

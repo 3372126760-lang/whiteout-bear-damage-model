@@ -6,7 +6,11 @@ export {
 export type { TroopRatioOptimizerDependencies } from "./optimizeTroopRatio";
 export { generateTroopRatioGrid } from "./generateTroopRatioGrid";
 export type { TroopRatioGridOptions } from "./generateTroopRatioGrid";
-export { optimizeSeparableRatioGrid } from "./optimizeSeparableRatioGrid";
+export {
+  optimizeSeparableRatioGrid,
+  referenceExactRatioSolver,
+  solveExactRatioFromCoefficients,
+} from "./optimizeSeparableRatioGrid";
 export type {
   SeparableRatioCandidate,
   SeparableRatioGridInput,

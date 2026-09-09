@@ -41,6 +41,7 @@ const testInput: BodyOptimizationInput = {
 
 const shuyun = "hero.body.shuyun" as const;
 const hendrick = "hero.body.hengdelike" as const;
+const jessie = "hero.body.jiexi" as const;
 
 describe("combinationsWithReplacement", () => {
   it("允许四个相同元素", () => {
@@ -105,6 +106,16 @@ describe("optimizeBodyHeroes", () => {
         false,
       );
     }
+  });
+
+  it("九类技能生成414个唯一效果，热循环不为每个候选运行正式十回合状态机", () => {
+    const result = optimizeBodyHeroes(testInput, { bodyCount: 4, topK: 3 });
+    expect(result.combinationCount).toBe(414);
+    expect(result.effectSignatureCount).toBe(414);
+    expect(result.fastScoreCount).toBe(414);
+    expect(result.formalSimulationCount).toBe(1);
+    expect(result.detailedSimulationCount).toBe(3);
+    expect(result.compiledFastPath).toBe(true);
   });
 
   it("手动候选池包含 pending 或 unsupported 英雄时明确报错", () => {
@@ -202,5 +213,13 @@ describe("optimizeBodyHeroes", () => {
       bodyHeroIds: [shuyun, shuyun, shuyun, shuyun] satisfies BodyHeroId[],
     });
     expect(result.troopDamages.shield?.multipliers.byEffectType.attack).toBe(2);
+  });
+
+  it("手动damage pipeline允许四个相同常驻穿透技能", () => {
+    const result = calculateBattleDamage({
+      ...testInput,
+      bodyHeroIds: [jessie, jessie, jessie, jessie] satisfies BodyHeroId[],
+    });
+    expect(result.troopDamages.shield?.multipliers.byEffectType.penetration).toBe(2);
   });
 });

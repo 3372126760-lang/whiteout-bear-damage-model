@@ -74,6 +74,11 @@ console.log(JSON.stringify({
   body: {
     candidateHeroCount: body.candidateHeroCount,
     combinationCount: body.combinationCount,
+    effectSignatureCount: body.effectSignatureCount,
+    fastScoreCount: body.fastScoreCount,
+    detailedSimulationCount: body.detailedSimulationCount,
+    formalSimulationCount: body.formalSimulationCount,
+    profiling: body.profiling,
     stats: body.stats,
   },
   ratio: {
@@ -84,6 +89,13 @@ console.log(JSON.stringify({
     ratioCandidateCount: joint.ratioCandidateCount,
     bodyCombinationCount: joint.bodyCombinationCount,
     cartesianCandidateCount: joint.cartesianCandidateCount,
+    bodyEffectCount: joint.bodyEffectCount,
+    ratioSolverCallCount: joint.ratioSolverCallCount,
+    ratioSolverElapsedMs: joint.ratioSolverElapsedMs,
+    averageRatioSolverMs: joint.ratioSolverCallCount === 0 ? 0 : joint.ratioSolverElapsedMs / joint.ratioSolverCallCount,
+    detailedSimulationCount: joint.detailedSimulationCount,
+    formalSimulationCount: joint.formalSimulationCount,
+    profiling: joint.profiling,
     stats: joint.stats,
   },
   full: {

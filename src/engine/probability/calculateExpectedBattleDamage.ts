@@ -15,6 +15,7 @@ import {
   type ExpectedBattleDamageDependencies,
   type ExpectedBattleDamageOptions,
   type ExpectedBattleDamageResult,
+  type DamageDistributionResult,
   type ExpectedActiveEffectState,
   type ExpectedRoundDamageResult,
   type ExpectedRoundEnemyDefense,
@@ -47,6 +48,7 @@ import { isTriggerChainProbabilityTransition } from "../trigger-chain/resolveTri
 import { isActiveEffectEffectiveInRound } from "./createDurationProbabilityEvent";
 
 const TROOP_TYPES: readonly TroopType[] = ["shield", "lancer", "marksman"];
+const MAX_DAMAGE_HISTORIES_PER_FUTURE_STATE = 8;
 
 const ZERO_DAMAGE: AccumulatedBattleDamage = {
   shieldDamage: 0,
@@ -87,6 +89,7 @@ export function createExpectedBattleDamageCalculator(
         bearOptions,
         start,
         dependencies,
+        options.includeDamageDistribution === true,
       );
     }
 
@@ -97,6 +100,7 @@ export function createExpectedBattleDamageCalculator(
       tolerance,
       dependencies,
       start,
+      options.includeDamageDistribution === true,
     );
   };
 }
@@ -108,6 +112,7 @@ function calculateExactScenario(
   tolerance: number,
   dependencies: ExpectedBattleDamageDependencies,
   start: number,
+  includeDamageDistribution: boolean,
 ): ExpectedBattleDamageResult {
   if (!scenario.id) {
     throw new InvalidProbabilityError("ExactProbabilityScenario.id 不能为空。");
@@ -126,6 +131,14 @@ function calculateExactScenario(
   let totalStatesBeforeMerge = 0;
   let totalStatesAfterMerge = 0;
   let maxStatesInAnyRound = 1;
+  const distributionTracker = { compressed: false };
+  const mergeOptions = includeDamageDistribution
+    ? {
+        preserveAccumulatedDamage: true,
+        maxDamageHistoriesPerFutureState: MAX_DAMAGE_HISTORIES_PER_FUTURE_STATE,
+        distributionTracker,
+      }
+    : {};
 
   for (let round = 1; round <= context.totalRounds; round += 1) {
     assertStatesAtRound(states, round);
@@ -146,6 +159,7 @@ function calculateExactScenario(
       beforeDamageEvents,
       context,
       tolerance,
+      mergeOptions,
     );
     const damageStep = calculateDamageForStates(
       input,
@@ -159,6 +173,7 @@ function calculateExactScenario(
       afterDamageEvents,
       context,
       tolerance,
+      mergeOptions,
     );
 
     const transitioned = afterDamage.states.map((weighted) => {
@@ -178,7 +193,7 @@ function calculateExactScenario(
       afterDamage.statesBeforeMerge,
       transitioned.length,
     );
-    states = mergeWeightedBattleStates(transitioned);
+    states = mergeWeightedBattleStates(transitioned, mergeOptions);
     assertUnitProbabilityMass(states, tolerance, `round ${round} final states`);
     const statesAfterMerge = states.length;
     maxStatesInAnyRound = Math.max(
@@ -224,6 +239,9 @@ function calculateExactScenario(
     expectedRoundDamage,
     instantProbabilityEvents,
     finalStates: states,
+    ...(includeDamageDistribution
+      ? { damageDistribution: createDamageDistribution(states, distributionTracker.compressed) }
+      : {}),
     statistics: {
       statesBeforeMerge: totalStatesBeforeMerge,
       statesAfterMerge: totalStatesAfterMerge,
@@ -239,6 +257,7 @@ function createDeterministicExpectedResult(
   options: BearBattleOptions,
   start: number,
   dependencies: ExpectedBattleDamageDependencies,
+  includeDamageDistribution: boolean,
 ): ExpectedBattleDamageResult {
   const deterministic =
     dependencies.calculateDeterministicBattleDamage?.(input, options) ??
@@ -281,6 +300,17 @@ function createDeterministicExpectedResult(
   if (finalState === undefined) {
     throw new InvalidProbabilityError("确定性战斗结果缺少 finalState。");
   }
+  const finalStates: readonly WeightedBattleState[] = [
+    {
+      probability: 1,
+      state: finalState,
+      accumulatedDamage: {
+        ...expected,
+        totalDamage: deterministic.totalDamage,
+      },
+      transientEffects: [],
+    },
+  ];
 
   return {
     context: deterministic.context,
@@ -298,17 +328,10 @@ function createDeterministicExpectedResult(
     expectedTroopDamageBreakdowns:
       sumExpectedTroopDamageBreakdowns(expectedRoundDamage),
     expectedRoundDamage,
-    finalStates: [
-      {
-        probability: 1,
-        state: finalState,
-        accumulatedDamage: {
-          ...expected,
-          totalDamage: deterministic.totalDamage,
-        },
-        transientEffects: [],
-      },
-    ],
+    finalStates,
+    ...(includeDamageDistribution
+      ? { damageDistribution: createDamageDistribution(finalStates, false) }
+      : {}),
     instantProbabilityEvents: [],
     statistics: {
       statesBeforeMerge: deterministic.context.totalRounds,
@@ -318,6 +341,48 @@ function createDeterministicExpectedResult(
       elapsedMs: performance.now() - start,
     },
   };
+}
+
+function createDamageDistribution(
+  states: readonly WeightedBattleState[],
+  compressed: boolean,
+): DamageDistributionResult {
+  const probabilityByDamage = new Map<number, number>();
+  for (const weighted of states) {
+    const damage = weighted.accumulatedDamage.totalDamage;
+    probabilityByDamage.set(
+      damage,
+      (probabilityByDamage.get(damage) ?? 0) + weighted.probability,
+    );
+  }
+  const points = [...probabilityByDamage.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([damage, probability]) => ({ damage, probability }));
+  if (points.length === 0) {
+    throw new InvalidProbabilityError("最终伤害分布不能为空。");
+  }
+  return {
+    points,
+    lower95: weightedQuantile(points, 0.025),
+    upper95: weightedQuantile(points, 0.975),
+    method: compressed
+      ? "deterministicCompressedStateDistribution"
+      : "exactStateDistribution",
+  };
+}
+
+function weightedQuantile(
+  points: readonly { readonly damage: number; readonly probability: number }[],
+  quantile: number,
+): number {
+  let cumulative = 0;
+  for (const point of points) {
+    cumulative += point.probability;
+    if (cumulative + DEFAULT_PROBABILITY_TOLERANCE >= quantile) {
+      return point.damage;
+    }
+  }
+  return points[points.length - 1]!.damage;
 }
 
 interface StateDamageStep {

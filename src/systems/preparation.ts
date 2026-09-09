@@ -9,6 +9,7 @@ import { getHeadHeroById } from "../game-data/heroes/headHeroQueries";
 
 export function calculateMarchCapacity(config: BattlePreparationConfig): MarchCapacityResult {
   if(!Number.isSafeInteger(config.baseMarchCapacity)||config.baseMarchCapacity<0) throw new Error("基础出征容量必须是非负整数。");
+  if(config.capacityMode==="useFinalTroops") return {baseMarchCapacity:config.baseMarchCapacity,expertFixedCapacity:0,petFixedCapacity:0,otherFixedCapacity:0,fixedAdjustedCapacity:config.baseMarchCapacity,townMarchCapacityRate:0,rawFinalMarchCapacity:config.baseMarchCapacity,finalMarchCapacity:config.baseMarchCapacity};
   const other=config.otherFixedCapacity??0;
   if(!Number.isSafeInteger(other)||other<0) throw new Error("其他固定容量必须是非负整数。");
   const expert=bounded(config.expert.bearSlayerLevel,0,10,"巨熊克星")*BEAR_SLAYER_CAPACITY_PER_LEVEL;
@@ -27,11 +28,13 @@ export function prepareBattleModifiers(troops:readonly BaseTroopGroupInput[], fo
   for(const troop of troops) sourceCounts[troop.troopType]+=troop.troopCount;
   const total=sourceCounts.shield+sourceCounts.lancer+sourceCounts.marksman;
   const ratios=total===0?{shield:0,lancer:0,marksman:100}:{shield:sourceCounts.shield/total*100,lancer:sourceCounts.lancer/total*100,marksman:sourceCounts.marksman/total*100};
-  const troopCounts=allocateTroopsByRatio(capacity.finalMarchCapacity,ratios);
+  const troopCounts=config.capacityMode==="useFinalTroops"
+    ? sourceCounts
+    : allocateTroopsByRatio(capacity.finalMarchCapacity,ratios);
   const effects:SkillEffect[]=[];
-  add(effects,"buffAttack",TOWN_BUFF_RATES[config.town.attack]+lookupLevel(PET_BUFF_RATES,config.pet.attackLevel,"宠物攻击"));
-  add(effects,"buffPenetration",TOWN_BUFF_RATES[config.town.penetration]+lookupLevel(PET_BUFF_RATES,config.pet.penetrationLevel,"宠物穿透"));
-  add(effects,"buffDefenseReduction",TOWN_BUFF_RATES[config.town.defenseReduction]+lookupLevel(PET_BUFF_RATES,config.pet.defenseReductionLevel,"宠物减防"));
+  add(effects,"buffAttack",TOWN_BUFF_RATES[config.town.attack]+lookupLevel(PET_BUFF_RATES,config.pet.attackLevel,"宠物攻击")+(config.additionalDamageBuffs?.attackRate??0));
+  add(effects,"buffPenetration",TOWN_BUFF_RATES[config.town.penetration]+lookupLevel(PET_BUFF_RATES,config.pet.penetrationLevel,"宠物穿透")+(config.additionalDamageBuffs?.penetrationRate??0));
+  add(effects,"buffDefenseReduction",TOWN_BUFF_RATES[config.town.defenseReduction]+lookupLevel(PET_BUFF_RATES,config.pet.defenseReductionLevel,"宠物减防")+(config.additionalDamageBuffs?.defenseReductionRate??0));
   add(effects,"expertBearDamage",lookupLevel(HUNTER_HEART_RATES,config.expert.hunterHeartLevel,"猎手之心"));
   for(const field of ["shieldHeroId","lancerHeroId","marksmanHeroId"] as const){const id=formation[field];if(!id)continue;const hero=getHeadHeroById(id);const level=config.exclusiveWeapons?.levelsByHeroId[id]??0;const rate=lookupLevel(EXCLUSIVE_WEAPON_RATES,level,"英雄专武");if(hero?.exclusiveWeaponBuffType==="attack")add(effects,"buffAttack",rate);if(hero?.exclusiveWeaponBuffType==="penetration")add(effects,"buffPenetration",rate)}
   return {capacity,troopCounts,skills:effects.length?[{id:"system.battle-preparation",name:"专家与Buff",status:"supported",trigger:{type:"always"},effects}]:[]};

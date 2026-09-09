@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   applyOptimizationRow,
+  BEAR_PIT_ATTACK_PERCENT,
   bearSlayerLevelOptions,
   bodySkillOptions,
   calculateDisplayedTotalTroops,
   calculateInputTroopTotal,
   calculateUiDamage,
   createDefaultFormState,
+  createOptimizationRequest,
   displayPercentToDecimal,
   exclusiveWeaponLevelOptions,
   formatBodySkillOptionLabel,
@@ -18,68 +20,101 @@ import {
   knownTroopLevelOptions,
   petBuffLevelOptions,
   petCapacityLevelOptions,
+  runOptimizationCore,
   topKOptions,
   troopSkillLevelOptions,
   visiblePendingSkillDetails,
   type UiOptimizationRow,
 } from "./model";
 
-describe("Stage 25 UI adapter",()=>{
-  it("计算基础兵种数据",()=>expect(calculateUiDamage(createDefaultFormState()).expectedTotalDamage).toBeGreaterThan(0));
-  it("把444.35%解释为4.4435",()=>expect(displayPercentToDecimal("444.35")).toBeCloseTo(4.4435,12));
-  it("默认验证预设真正初始化为最新账号数据",()=>{
-    const form=createDefaultFormState();
-    expect(calculateDisplayedTotalTroops(form)).toBe(182370);
-    expect(form.troops).toEqual({
-      shield:{count:"1824",troopLevelId:"T11-FC10",attackPercent:"1119.9",defensePercent:"0",penetrationPercent:"521.7",healthPercent:"0"},
-      lancer:{count:"1823",troopLevelId:"T10-FC7",attackPercent:"867.0",defensePercent:"0",penetrationPercent:"543.2",healthPercent:"0"},
-      marksman:{count:"178723",troopLevelId:"T12-FC10",attackPercent:"1765.0",defensePercent:"0",penetrationPercent:"1551.9",healthPercent:"0"},
-    });
-    expect(form.preparation).toMatchObject({
-      hunterHeartLevel:"10",bearSlayerLevel:"10",
-      pet:{attackLevel:"9",penetrationLevel:"9",defenseReductionLevel:"10",capacityLevel:"10"},
-      weaponLevels:{shield:"0",lancer:"5",marksman:"2"},marksmanBlazingStarLevel:"1",lancerT12SkillLevel:"0",
-    });
-    expect(form.preparation).not.toHaveProperty("baseMarchCapacity");
-    expect(calculateInputTroopTotal(form)).toBe(182370);
-    expect(form.headHeroIds).toEqual({shield:"hero.head.heketuo",lancer:"hero.head.miya",marksman:"hero.head.hengdelike"});
-    expect(form.bodyHeroIds).toEqual([
+const fastDamage = (form: ReturnType<typeof createDefaultFormState>) =>
+  calculateUiDamage(form, { includeDamageInterval: false });
+
+/** 旧真实账号数据只作为回归fixture，不得重新成为普通UI默认值。 */
+const createLegacyPlayerFixture = (): ReturnType<typeof createDefaultFormState> => {
+  const form = createDefaultFormState();
+  return {
+    ...form,
+    battleReportInputState: { troops: {
+      shield: { count: "1824", troopLevelId: "T11-FC10", attackPercent: "1119.9", penetrationPercent: "521.7" },
+      lancer: { count: "1823", troopLevelId: "T10-FC7", attackPercent: "867.0", penetrationPercent: "543.2" },
+      marksman: { count: "178723", troopLevelId: "T12-FC10", attackPercent: "1765.0", penetrationPercent: "1551.9" },
+    } },
+    bodyHeroIds: [
       "body-skill.probability-penetration-50",
       "body-skill.attack-25",
       "body-skill.defense-reduction-25",
       "body-skill.defense-reduction-25",
-    ]);
+    ],
+    headHeroIds: {
+      shield: "hero.head.heketuo",
+      lancer: "hero.head.miya",
+      marksman: "hero.head.hengdelike",
+    },
+    preparation: {
+      ...form.preparation,
+      hunterHeartLevel: "10",
+      bearSlayerLevel: "10",
+      pet: { attackLevel: "9", penetrationLevel: "9", defenseReductionLevel: "10", capacityLevel: "10" },
+      weaponLevels: { shield: "0", lancer: "5", marksman: "2" },
+      marksmanBlazingStarLevel: "1",
+    },
+  };
+};
+
+describe("Stage 25 UI adapter",()=>{
+  it("计算基础兵种数据",()=>expect(fastDamage(createLegacyPlayerFixture()).expectedTotalDamage).toBeGreaterThan(0));
+  it("把444.35%解释为4.4435",()=>expect(displayPercentToDecimal("444.35")).toBeCloseTo(4.4435,12));
+  it("普通网页默认使用全中性配置",()=>{
+    const form=createDefaultFormState();
+    expect(calculateDisplayedTotalTroops(form)).toBe(0);
+    expect(form.inputMode).toBe("battleReport");
+    expect(form.battleReportInputState.troops).toEqual({
+      shield:{count:"0",troopLevelId:"T1",attackPercent:"0",penetrationPercent:"0"},
+      lancer:{count:"0",troopLevelId:"T1",attackPercent:"0",penetrationPercent:"0"},
+      marksman:{count:"0",troopLevelId:"T1",attackPercent:"0",penetrationPercent:"0"},
+    });
+    expect(form.rallyInputState).toEqual({generalAttackPercent:"0",generalPenetrationPercent:"0",troops:form.battleReportInputState.troops});
+    expect(form.preparation).toMatchObject({
+      hunterHeartLevel:"0",bearSlayerLevel:"0",
+      town:{attack:"none",penetration:"none",defenseReduction:"none",marchCapacity:"none"},
+      pet:{attackLevel:"0",penetrationLevel:"0",defenseReductionLevel:"0",capacityLevel:"0"},
+      weaponLevels:{shield:"0",lancer:"0",marksman:"0"},marksmanBlazingStarLevel:"0",lancerT12SkillLevel:"0",
+    });
+    expect(form.preparation).not.toHaveProperty("baseMarchCapacity");
+    expect(calculateInputTroopTotal(form)).toBe(0);
+    expect(form.headHeroIds).toEqual({shield:"",lancer:"",marksman:""});
+    expect(form.bodyHeroIds).toEqual(["","","",""]);
     expect(form.ratioStepPercent).toBe("0.01");
   });
-  it("默认预设使用最终227370兵力并得到约518万射手D0",()=>{
-    const result=calculateUiDamage(createDefaultFormState());
+  it("旧真实账号fixture仍使用最终227370兵力并把熊坑25%加入基础攻击",()=>{
+    const result=fastDamage(createLegacyPlayerFixture());
     expect(result.totalTroopCount).toBe(227370);
     expect(result.result.preparation?.troopCounts).toEqual({shield:2274,lancer:2273,marksman:222823});
-    expect(result.baseDamageByTroop.marksman).toBeCloseTo(5184142.603580574,8);
-    expect(result.expectedTotalDamage).toBeCloseTo(1285548065.3756616,4);
+    expect(result.baseDamageByTroop.marksman).toBeCloseTo(5253635.131778705,8);
+    expect(result.expectedTotalDamage).toBeCloseTo(1302903632.6064274,4);
   });
-  it("supported车身进入计算",()=>expect(calculateUiDamage(createDefaultFormState()).appliedSkills.length).toBeGreaterThan(0));
-  it("拒绝负数兵量",()=>{const f=createDefaultFormState();const bad={...f,troops:{...f.troops,shield:{...f.troops.shield,count:"-1"}}};expect(()=>calculateUiDamage(bad)).toThrow(/非负整数/)});
-  it("拒绝空百分比",()=>{const f=createDefaultFormState();const bad={...f,troops:{...f.troops,shield:{...f.troops.shield,attackPercent:""}}};expect(()=>calculateUiDamage(bad)).toThrow(/不能为空/)});
-  it("防御和生命可保存但不改变当前对熊基础输出",()=>{
-    const base=createDefaultFormState();
-    const reserved={...base,troops:{...base.troops,shield:{...base.troops.shield,defensePercent:"999",healthPercent:"999"}}};
-    expect(calculateUiDamage(reserved).expectedTotalDamage).toBe(calculateUiDamage(base).expectedTotalDamage);
+  it("supported车身进入计算",()=>expect(fastDamage(createLegacyPlayerFixture()).appliedSkills.length).toBeGreaterThan(0));
+  it("拒绝负数兵量",()=>{const f=createDefaultFormState();const bad={...f,battleReportInputState:{troops:{...f.battleReportInputState.troops,shield:{...f.battleReportInputState.troops.shield,count:"-1"}}}};expect(()=>calculateUiDamage(bad)).toThrow(/非负整数/)});
+  it("拒绝空百分比",()=>{const f=createDefaultFormState();const bad={...f,battleReportInputState:{troops:{...f.battleReportInputState.troops,shield:{...f.battleReportInputState.troops.shield,attackPercent:""}}}};expect(()=>calculateUiDamage(bad)).toThrow(/不能为空/)});
+  it("普通UI输入模型不再保存防御和生命字段",()=>{
+    const troops=createDefaultFormState().battleReportInputState.troops;
+    expect(Object.values(troops).every((troop)=>!("defensePercent" in troop)&&!("healthPercent" in troop))).toBe(true);
   });
   it("三兵种任一原始兵数变化都会自动更新基础容量",()=>{
-    const form=createDefaultFormState();
+    const form=createLegacyPlayerFixture();
     for(const troopType of ["shield","lancer","marksman"] as const){
-      const changed={...form,troops:{...form.troops,[troopType]:{...form.troops[troopType],count:String(Number(form.troops[troopType].count)+1)}}};
+      const changed={...form,battleReportInputState:{troops:{...form.battleReportInputState.troops,[troopType]:{...form.battleReportInputState.troops[troopType],count:String(Number(form.battleReportInputState.troops[troopType].count)+1)}}}};
       expect(calculateInputTroopTotal(changed)).toBe(182371);
     }
   });
   it("优化方案只按比例写回原始总兵数，避免把扩容结果再次作为基础容量",()=>{
-    const form=createDefaultFormState();
+    const form=createLegacyPlayerFixture();
     const row={rank:1,expectedTenRoundDamage:1,improvementRatio:0,troopCounts:{shield:2274,lancer:4547,marksman:220549},ratios:{shield:1,lancer:2,marksman:97},bodyHeroIds:[],bodyHeroNames:[],headFormation:{},headHeroNames:[],fireCrystalSkillIds:[],fireCrystalNames:[]} satisfies UiOptimizationRow;
     const applied=applyOptimizationRow(form,row);
     expect(calculateInputTroopTotal(applied)).toBe(182370);
-    expect(applied.troops).toMatchObject({shield:{count:"1824"},lancer:{count:"3647"},marksman:{count:"176899"}});
-    expect(calculateUiDamage(applied).totalTroopCount).toBe(227370);
+    expect(applied.battleReportInputState.troops).toMatchObject({shield:{count:"1824"},lancer:{count:"3647"},marksman:{count:"176899"}});
+    expect(fastDamage(applied).totalTroopCount).toBe(227370);
   });
   it("兵种等级UI严格包含最终口径且保留T10-FC6至FC10",()=>{
     const ids=knownTroopLevelOptions.map(level=>level.id);
@@ -101,7 +136,7 @@ describe("Stage 25 UI adapter",()=>{
     expect(nimo.troopType).toBe("shield");
     expect(nimo.headSkills.map((definition)=>definition.name)).toEqual(["战前宣言","剑术指导","精湛剑术"]);
     expect(formatHeadHeroOptionLabel(nimo)).toBe("尼莫 · 全军穿透 +25%");
-    const form=createDefaultFormState();
+    const form=createLegacyPlayerFixture();
     const selected={...form,headHeroIds:{...form.headHeroIds,shield:nimo.id}};
     const details=getSelectedHeroSkillDetails(selected);
     expect(details.some((detail)=>detail.sourceSummary?.includes("尼莫")&&detail.skillName.includes("穿透 +25%"))).toBe(true);
@@ -110,15 +145,15 @@ describe("Stage 25 UI adapter",()=>{
     expect(nimo.explorationSkills?.map((skill)=>skill.name)).toEqual(["三断斩","剑气","孤傲"]);
   });
   it("尼莫专武攻击buff仍由英雄数据生效",()=>{
-    const form=createDefaultFormState();
+    const form=createLegacyPlayerFixture();
     const selected={...form,headHeroIds:{...form.headHeroIds,shield:"hero.head.nimo"}};
     const withWeapon={...selected,preparation:{...selected.preparation,weaponLevels:{...selected.preparation.weaponLevels,shield:"5"}}};
-    expect(calculateUiDamage(withWeapon).expectedTotalDamage).toBeGreaterThan(calculateUiDamage(selected).expectedTotalDamage);
+    expect(fastDamage(withWeapon).expectedTotalDamage).toBeGreaterThan(fastDamage(selected).expectedTotalDamage);
   });
   it("容量配置进入UI计算并保持兵种和等于finalMarchCapacity",()=>{
-    const f=createDefaultFormState();
+    const f=createLegacyPlayerFixture();
     const configured={...f,preparation:{...f.preparation,bearSlayerLevel:"10",town:{...f.preparation.town,marchCapacity:"small" as const}}};
-    const result=calculateUiDamage(configured);
+    const result=fastDamage(configured);
     expect(result.totalTroopCount).toBe(250107);
     expect(Object.values(result.result.preparation!.troopCounts).reduce((sum,count)=>sum+count,0)).toBe(250107);
   });
@@ -149,7 +184,7 @@ describe("Stage 25 UI adapter",()=>{
     expect(formatHeadHeroOptionLabel(gwen)).not.toContain("有待确认技能");
   });
   it("重复车身技能按语义合并而不是按heroId逐条显示",()=>{
-    const form=createDefaultFormState();
+    const form=createLegacyPlayerFixture();
     const details=getSelectedHeroSkillDetails({...form,headHeroIds:{shield:"",lancer:"",marksman:""}});
     const defense=details.filter((detail)=>detail.status==="applied"&&detail.skillName==="敌军防御 -25%");
     expect(defense).toHaveLength(1);
@@ -158,5 +193,120 @@ describe("Stage 25 UI adapter",()=>{
   it("比例统一显示到0.01%",()=>{
     expect(formatRatioPercent(7)).toBe("7.00%");
     expect(formatRatioPercent(33.333333)).toBe("33.33%");
+  });
+
+  it("战报攻击只与熊坑25个百分点在基础A中加算",()=>{
+    const form=createDefaultFormState();
+    const report={...form,battleReportInputState:{troops:{
+      ...form.battleReportInputState.troops,
+      shield:{...form.battleReportInputState.troops.shield,attackPercent:"500",penetrationPercent:"0"},
+    }}};
+    const result=fastDamage(report);
+    expect(BEAR_PIT_ATTACK_PERCENT).toBe(25);
+    expect(result.percentageNormalization.shield.attack).toEqual({displayPercent:525,decimal:5.25,multiplier:6.25});
+  });
+
+  it("集结基础A/P按部队属性、兵种属性和熊坑攻击加算",()=>{
+    const form=createDefaultFormState();
+    const rally={...form,inputMode:"rally" as const,rallyInputState:{
+      ...form.rallyInputState,
+      generalAttackPercent:"192.3",
+      generalPenetrationPercent:"37.1",
+      troops:{...form.rallyInputState.troops,shield:{...form.rallyInputState.troops.shield,attackPercent:"357.8",penetrationPercent:"214.8"}},
+    }};
+    const result=fastDamage(rally);
+    expect(result.percentageNormalization.shield.attack.displayPercent).toBeCloseTo(575.1,12);
+    expect(result.percentageNormalization.shield.attack.decimal).toBeCloseTo(5.751,12);
+    expect(result.percentageNormalization.shield.attack.multiplier).toBeCloseTo(6.751,12);
+    expect(result.percentageNormalization.shield.penetration.displayPercent).toBeCloseTo(251.9,12);
+    expect(result.percentageNormalization.shield.penetration.multiplier).toBeCloseTo(3.519,12);
+  });
+
+  it("车头专武Buff与集结基础A/P严格分区",()=>{
+    const form=createDefaultFormState();
+    const rally={...form,inputMode:"rally" as const,rallyInputState:{
+      ...form.rallyInputState,
+      generalAttackPercent:"192.3",
+      generalPenetrationPercent:"37.1",
+      troops:{...form.rallyInputState.troops,
+        shield:{...form.rallyInputState.troops.shield,count:"100",attackPercent:"357.8",penetrationPercent:"214.8"},
+        lancer:{...form.rallyInputState.troops.lancer,count:"100"},
+        marksman:{...form.rallyInputState.troops.marksman,count:"100"},
+      },
+    },headHeroIds:{shield:"hero.head.nimo",lancer:"",marksman:"hero.head.alongsuo"},preparation:{...form.preparation,weaponLevels:{shield:"5",lancer:"0",marksman:"5"}}};
+    const result=fastDamage(rally);
+    const multipliers=result.result.expectedDamageByRound[0]!.expectedMultipliersByTroop.shield!.byEffectType;
+    expect(result.percentageNormalization.shield.attack.displayPercent).toBeCloseTo(575.1,12);
+    expect(result.percentageNormalization.shield.penetration.displayPercent).toBeCloseTo(251.9,12);
+    expect(multipliers.buffAttack).toBeCloseTo(1.15,12);
+    expect(multipliers.buffPenetration).toBeCloseTo(1.15,12);
+  });
+
+  it("集结模式直接使用最终130310兵数并忽略全部容量扩展历史状态",()=>{
+    const form=createDefaultFormState();
+    const rally={...form,inputMode:"rally" as const,rallyInputState:{...form.rallyInputState,troops:{
+      shield:{...form.rallyInputState.troops.shield,count:"10"},
+      lancer:{...form.rallyInputState.troops.lancer,count:"300"},
+      marksman:{...form.rallyInputState.troops.marksman,count:"130000"},
+    }},preparation:{...form.preparation,bearSlayerLevel:"10",town:{...form.preparation.town,marchCapacity:"large" as const},pet:{...form.preparation.pet,capacityLevel:"10"}}};
+    const result=fastDamage(rally);
+    expect(result.totalTroopCount).toBe(130310);
+    expect(result.result.preparation?.troopCounts).toEqual({shield:10,lancer:300,marksman:130000});
+    expect(result.result.preparation?.capacity).toMatchObject({expertFixedCapacity:0,petFixedCapacity:0,townMarchCapacityRate:0,finalMarchCapacity:130310});
+  });
+
+  it("两种输入模式在同一表单状态中独立保存",()=>{
+    const form=createDefaultFormState();
+    const changedReport={...form,battleReportInputState:{troops:{...form.battleReportInputState.troops,shield:{...form.battleReportInputState.troops.shield,count:"777"}}}};
+    const changedBoth={...changedReport,rallyInputState:{...changedReport.rallyInputState,generalAttackPercent:"333",troops:{...changedReport.rallyInputState.troops,shield:{...changedReport.rallyInputState.troops.shield,count:"888"}}}};
+    expect(changedBoth.battleReportInputState.troops.shield.count).toBe("777");
+    expect(changedBoth.rallyInputState.troops.shield.count).toBe("888");
+    expect(changedBoth.rallyInputState.generalAttackPercent).toBe("333");
+  });
+
+  it("集结模式优化继续按期望伤害评分且固定使用最终兵数",()=>{
+    const form=createDefaultFormState();
+    const rally={...form,inputMode:"rally" as const,ratioStepPercent:"100",topK:"3",rallyInputState:{...form.rallyInputState,troops:{
+      shield:{...form.rallyInputState.troops.shield,count:"10"},
+      lancer:{...form.rallyInputState.troops.lancer,count:"300"},
+      marksman:{...form.rallyInputState.troops.marksman,count:"130000"},
+    }}};
+    const request=createOptimizationRequest(rally,"ratio");
+    expect(request.kind).toBe("ratio");
+    if(request.kind!=="ratio") throw new Error("expected ratio request");
+    expect(request.input.totalTroopCount).toBe(130310);
+    expect(request.input.preparation?.capacityMode).toBe("useFinalTroops");
+    const result=runOptimizationCore(request);
+    if(result.kind!=="ratio") throw new Error("expected ratio result");
+    expect(result.result.scoreMetric).toBe("expectedTenRoundTotalDamage");
+    expect(result.result.results.every((candidate)=>Object.values(candidate.troopCounts).reduce((sum,count)=>sum+count,0)===130310)).toBe(true);
+  });
+
+  it("优化候选不计算分布，排名完成后可只为第1名生成95%区间",()=>{
+    const original=createDefaultFormState();
+    const deterministic={
+      ...original,
+      ratioStepPercent:"100",
+      topK:"1",
+      bodyHeroIds:["body-skill.attack-25"],
+      headHeroIds:{shield:"",lancer:"",marksman:""},
+      battleReportInputState:{troops:Object.fromEntries((["shield","lancer","marksman"] as const).map((type)=>[
+        type,
+        {...original.battleReportInputState.troops[type],count:"1000",troopLevelId:"T1"},
+      ])) as typeof original.battleReportInputState.troops},
+      preparation:{
+        ...original.preparation,
+        marksmanBlazingStarLevel:"0",
+        lancerT12SkillLevel:"0",
+        weaponLevels:{shield:"0",lancer:"0",marksman:"0"},
+      },
+    };
+    const request=createOptimizationRequest(deterministic,"ratio");
+    const rankedOnly=runOptimizationCore(request);
+    expect(rankedOnly.topDamageInterval).toBeUndefined();
+    const withTopInterval=runOptimizationCore(request,{includeTopDamageInterval:true});
+    expect(withTopInterval.topDamageInterval).toBeDefined();
+    expect(withTopInterval.topDamageInterval?.lower95).toBeCloseTo(withTopInterval.result.results[0]!.score,8);
+    expect(withTopInterval.topDamageInterval?.upper95).toBeCloseTo(withTopInterval.result.results[0]!.score,8);
   });
 });

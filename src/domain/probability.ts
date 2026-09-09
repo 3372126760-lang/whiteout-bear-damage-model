@@ -225,6 +225,19 @@ export interface ProbabilityEngineStatistics {
   readonly elapsedMs: number;
 }
 
+export interface DamageDistributionPoint {
+  readonly damage: number;
+  readonly probability: number;
+}
+
+/** 当前模型已纳入随机触发所形成的离散10回合总伤害分布。 */
+export interface DamageDistributionResult {
+  readonly points: readonly DamageDistributionPoint[];
+  readonly lower95: number;
+  readonly upper95: number;
+  readonly method: "exactStateDistribution" | "deterministicCompressedStateDistribution";
+}
+
 export interface ExpectedBattleDamageResult {
   readonly context: BearBattleContext;
   readonly expectedBaseDamage: number;
@@ -245,11 +258,14 @@ export interface ExpectedBattleDamageResult {
   readonly instantProbabilityEvents: readonly InstantProbabilityEventReport[];
   readonly finalStates: readonly WeightedBattleState[];
   readonly statistics: ProbabilityEngineStatistics;
+  /** 仅在显式请求时生成；优化候选评分默认不承担完整分布成本。 */
+  readonly damageDistribution?: DamageDistributionResult;
 }
 
 export interface ExpectedBattleDamageOptions extends BearBattleOptions {
   readonly scenario?: ExactProbabilityScenario;
   readonly probabilityTolerance?: number;
+  readonly includeDamageDistribution?: boolean;
 }
 
 export interface ExpectedBattleDamageDependencies {

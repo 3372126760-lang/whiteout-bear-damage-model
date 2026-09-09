@@ -8,6 +8,7 @@ import { PROBABILITY_TRIGGER_PHASES } from "../../domain/skill";
 import { validateBattleState } from "../rounds/battleState";
 import { InvalidProbabilityError } from "./errors";
 import { mergeWeightedBattleStates } from "./mergeWeightedBattleStates";
+import type { MergeWeightedBattleStateOptions } from "./mergeWeightedBattleStates";
 import {
   assertUnitProbabilityMass,
   validateProbability,
@@ -31,6 +32,7 @@ export function advanceProbabilityStates(
   events: readonly BernoulliStateTransition[],
   battleContext: BearBattleContext,
   probabilityTolerance: number,
+  mergeOptions: MergeWeightedBattleStateOptions = {},
 ): ProbabilityStateAdvanceResult {
   assertUnitProbabilityMass(states, probabilityTolerance, "input states");
   assertUniqueEventIds(events);
@@ -118,7 +120,7 @@ export function advanceProbabilityStates(
   }
 
   const statesBeforeMerge = branches.length;
-  const merged = mergeWeightedBattleStates(branches);
+  const merged = mergeWeightedBattleStates(branches, mergeOptions);
   assertUnitProbabilityMass(merged, probabilityTolerance, "merged states");
   return {
     states: merged,

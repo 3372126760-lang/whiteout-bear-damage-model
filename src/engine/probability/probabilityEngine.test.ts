@@ -292,6 +292,29 @@ describe("精确概率状态传播", () => {
     ).toBe(true);
   });
 
+  it("精确状态分布给出2.5%至97.5%分位且不使用正态近似", () => {
+    const base = calculateBattleDamage(input).finalDamage;
+    const result = calculateExpectedBattleDamage(input, {
+      scenario: oneTimeScenario(syntheticEvent("interval", 0.5, 1, 1)),
+      includeDamageDistribution: true,
+    });
+    expect(result.damageDistribution?.lower95).toBeCloseTo(base * 10, 8);
+    expect(result.damageDistribution?.upper95).toBeCloseTo(base * 11, 8);
+    expect(result.damageDistribution?.method).toBe("exactStateDistribution");
+    expect(result.damageDistribution?.points).toHaveLength(2);
+  });
+
+  it("无随机技能时95%区间退化为期望伤害单点", () => {
+    const result = calculateExpectedBattleDamage(input, {
+      includeDamageDistribution: true,
+    });
+    expect(result.damageDistribution).toMatchObject({
+      lower95: result.expectedTotalDamage,
+      upper95: result.expectedTotalDamage,
+      method: "exactStateDistribution",
+    });
+  });
+
   it("两个测试专用独立事件的最大状态数为 4，并在效果到期后精确合并", () => {
     const scenario: ExactProbabilityScenario = {
       id: "scenario.two-independent",

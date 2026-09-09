@@ -6,9 +6,11 @@ import { CalculatorApp } from "./App";
 afterEach(cleanup);
 
 describe("计算器UI有限选项与技能说明", () => {
-  it("标题从统一版本常量显示v0.1", () => {
+  it("标题从统一版本常量显示v0.2", () => {
     render(<CalculatorApp />);
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("无尽冬日打熊伤害模型 v0.1");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("无尽冬日打熊伤害模型 v0.2");
+    expect(screen.getByText("缥缈制作，欢迎移民583")).toBeTruthy();
+    expect(document.querySelector(".header-meta-row .author-note")).toBeTruthy();
   });
 
   it("所有有限等级与返回条数使用下拉选择", () => {
@@ -64,25 +66,31 @@ describe("计算器UI有限选项与技能说明", () => {
     expect(document.body.textContent).not.toMatch(/弗林特.*(?:supported|pending|confirmed)/i);
   });
 
-  it("首次渲染使用最新默认预设，并合并两个亨德里克车身技能", () => {
+  it("首次渲染使用0/无/不选择的中性默认配置", () => {
     render(<CalculatorApp />);
-    expect((screen.getByLabelText("盾兵兵数") as HTMLInputElement).value).toBe("1824");
-    expect((screen.getByLabelText("矛兵兵数") as HTMLInputElement).value).toBe("1823");
-    expect((screen.getByLabelText("射手兵数") as HTMLInputElement).value).toBe("178723");
+    expect((screen.getByLabelText("盾兵兵数") as HTMLInputElement).value).toBe("0");
+    expect((screen.getByLabelText("矛兵兵数") as HTMLInputElement).value).toBe("0");
+    expect((screen.getByLabelText("射手兵数") as HTMLInputElement).value).toBe("0");
+    expect((screen.getByLabelText("盾兵攻击加成") as HTMLInputElement).value).toBe("0");
+    expect((screen.getByLabelText("盾兵穿透加成") as HTMLInputElement).value).toBe("0");
+    expect((screen.getByLabelText("盾兵等级") as HTMLSelectElement).value).toBe("T1");
+    for (const label of ["盾兵车头","矛兵车头","射手车头","车身 1","车身 2","车身 3","车身 4"]) {
+      expect((screen.getByLabelText(label) as HTMLSelectElement).value).toBe("");
+    }
+    for (const label of ["猎手之心","巨熊克星","盾兵车头专武技能等级","矛兵车头专武技能等级","射手车头专武技能等级","炽火凝星","矛兵 T12 技能"]) {
+      expect((screen.getByLabelText(label) as HTMLSelectElement).value).toBe("0");
+    }
     expect(screen.getByText("基础阵容兵数")).toBeTruthy();
-    expect(screen.getAllByText("182,370").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("0").length).toBeGreaterThan(0);
     expect(screen.getByText("由盾兵、矛兵、射手原始输入自动求和")).toBeTruthy();
-    expect(screen.getByText("打熊阵容无宠无药打野怪数据")).toBeTruthy();
-    expect(screen.getAllByText("【敌军防御 -25%】").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("来源英雄：亨德里克").length).toBeGreaterThan(0);
-    expect(screen.getByText("本 skill 小区合计：减防 +50%")).toBeTruthy();
-    expect(screen.queryByText("计入伤害")).toBeNull();
+    expect(screen.getByText(/打熊阵容无宠无药打野怪数据/)).toBeTruthy();
+    expect(screen.queryByText("【敌军防御 -25%】")).toBeNull();
   });
 
   it("修改三兵种输入会实时更新只读基础阵容兵数", () => {
     render(<CalculatorApp />);
-    fireEvent.change(screen.getByLabelText("盾兵兵数"), { target: { value: "1825" } });
-    expect(screen.getAllByText("182,371").length).toBeGreaterThan(0);
+    fireEvent.change(screen.getByLabelText("盾兵兵数"), { target: { value: "1" } });
+    expect(screen.getAllByText("1").length).toBeGreaterThan(0);
     expect(screen.queryByLabelText("基础出征容量")).toBeNull();
   });
 
@@ -108,5 +116,37 @@ describe("计算器UI有限选项与技能说明", () => {
     expect(screen.getByText("查看当前乘区明细（战报 / Buff / Skill / Expert）")).toBeTruthy();
     expect(container.textContent).toContain("Buff攻");
     expect(container.textContent).toContain("Skill攻");
+    expect(container.textContent).toContain("95%伤害区间");
+  });
+
+  it("战报与集结模式分别保存输入且集结模式隐藏容量等级", () => {
+    render(<CalculatorApp />);
+    expect(screen.getByRole("group", { name: "输入方式" })).toBeTruthy();
+    expect(screen.queryByText("防御加成 %")).toBeNull();
+    expect(screen.queryByText("生命加成 %")).toBeNull();
+    fireEvent.change(screen.getByLabelText("盾兵兵数"), { target: { value: "777" } });
+    fireEvent.click(screen.getByRole("button", { name: "集结模式" }));
+    expect(screen.getByText(/打熊上车时的集结属性以及出征/)).toBeTruthy();
+    expect(screen.getByLabelText("部队攻击")).toBeTruthy();
+    expect(screen.getByLabelText("部队穿透")).toBeTruthy();
+    expect(screen.queryByLabelText("集结部队攻击 Buff")).toBeNull();
+    expect(screen.queryByLabelText("集结部队穿透 Buff")).toBeNull();
+    expect(screen.queryByLabelText("巨熊克星")).toBeNull();
+    expect(screen.queryByLabelText("出征等级")).toBeNull();
+    fireEvent.change(screen.getByLabelText("盾兵兵数"), { target: { value: "888" } });
+    fireEvent.change(screen.getByLabelText("部队攻击"), { target: { value: "333" } });
+    fireEvent.click(screen.getByRole("button", { name: "战报模式" }));
+    expect((screen.getByLabelText("盾兵兵数") as HTMLInputElement).value).toBe("777");
+    fireEvent.click(screen.getByRole("button", { name: "集结模式" }));
+    expect((screen.getByLabelText("盾兵兵数") as HTMLInputElement).value).toBe("888");
+    expect((screen.getByLabelText("部队攻击") as HTMLInputElement).value).toBe("333");
+  });
+
+  it("更新日志从数据列表展示v0.1与v0.2", () => {
+    render(<CalculatorApp />);
+    expect(screen.getByText("更新日志")).toBeTruthy();
+    expect(screen.getByText("v0.2 · 2026-09-09")).toBeTruthy();
+    expect(screen.getByText("v0.1 · 2026-09-09")).toBeTruthy();
+    expect(screen.getByText("优化集结模式输入与默认配置")).toBeTruthy();
   });
 });

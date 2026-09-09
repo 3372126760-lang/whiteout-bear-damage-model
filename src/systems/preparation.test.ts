@@ -121,4 +121,41 @@ describe("专家、Buff与出征容量", () => {
     expect(multipliers.multiplierByEffectType.defenseReduction).toBeCloseTo(1.5, 12);
     expect(multipliers.combinedMultiplier).toBeCloseTo(1.2 * 1.25 * 1.2 * 1.5, 12);
   });
+
+  it("最终兵数模式不应用任何容量扩展且保留输入兵数", () => {
+    const prepared = prepareBattleModifiers([
+      { troopType: "shield", troopCount: 10, troopLevelId: "T10", stats: { attackPercent: 0, penetrationPercent: 0 } },
+      { troopType: "lancer", troopCount: 300, troopLevelId: "T10", stats: { attackPercent: 0, penetrationPercent: 0 } },
+      { troopType: "marksman", troopCount: 130_000, troopLevelId: "T10", stats: { attackPercent: 0, penetrationPercent: 0 } },
+    ], {}, {
+      ...baseConfig,
+      baseMarchCapacity: 130_310,
+      capacityMode: "useFinalTroops",
+      expert: { hunterHeartLevel: 0, bearSlayerLevel: 10 },
+      town: { ...baseConfig.town, marchCapacity: "large" },
+      pet: { ...baseConfig.pet, capacityLevel: 10 },
+    });
+    expect(prepared.troopCounts).toEqual({ shield: 10, lancer: 300, marksman: 130_000 });
+    expect(prepared.capacity).toMatchObject({
+      expertFixedCapacity: 0,
+      petFixedCapacity: 0,
+      townMarchCapacityRate: 0,
+      finalMarchCapacity: 130_310,
+    });
+  });
+
+  it("额外集结Buff与宠物在Buff小区加算", () => {
+    const prepared = prepareBattleModifiers([], {}, {
+      ...baseConfig,
+      capacityMode: "useFinalTroops",
+      pet: { ...baseConfig.pet, attackLevel: 5, penetrationLevel: 1 },
+      additionalDamageBuffs: { attackRate: .05, penetrationRate: .05 },
+    });
+    const multipliers = aggregateMultipliers(resolveSkillEffects(prepared.skills, "shield"), {
+      troopType: "shield",
+      damageChannel: "normalAttack",
+    });
+    expect(multipliers.multiplierByEffectType.buffAttack).toBeCloseTo(1.10, 12);
+    expect(multipliers.multiplierByEffectType.buffPenetration).toBeCloseTo(1.075, 12);
+  });
 });

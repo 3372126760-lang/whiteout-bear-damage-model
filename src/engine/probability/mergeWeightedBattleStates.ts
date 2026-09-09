@@ -23,12 +23,34 @@ interface StateAccumulator {
   weightedExtraAttackDamage: number;
 }
 
+export interface MergeWeightedBattleStateOptions {
+  /** 保留不同累计伤害历史，供精确总伤害分位数计算；默认只保留条件期望。 */
+  readonly preserveAccumulatedDamage?: boolean;
+  /** 单一未来状态最多保留的历史伤害点；超限时做确定性相邻分箱。 */
+  readonly maxDamageHistoriesPerFutureState?: number;
+  readonly distributionTracker?: { compressed: boolean };
+}
+
 /**
  * 合并未来演化完全相同的状态。不同历史累计伤害按条件概率加权，期望不变。
  */
 export function mergeWeightedBattleStates(
   states: readonly WeightedBattleState[],
+  options: MergeWeightedBattleStateOptions = {},
 ): readonly WeightedBattleState[] {
+  if (
+    options.preserveAccumulatedDamage === true &&
+    options.maxDamageHistoriesPerFutureState !== undefined
+  ) {
+    const compressed = compressDamageHistories(
+      states,
+      options.maxDamageHistoriesPerFutureState,
+      options.distributionTracker,
+    );
+    return mergeWeightedBattleStates(compressed, {
+      preserveAccumulatedDamage: true,
+    });
+  }
   const beforeMass = probabilityMass(states);
   const groups = new Map<string, StateAccumulator>();
 
@@ -38,7 +60,9 @@ export function mergeWeightedBattleStates(
     validateAccumulatedDamage(weighted.accumulatedDamage, index);
     if (weighted.probability === 0) continue;
 
-    const key = weightedBattleStateKey(weighted);
+    const key = options.preserveAccumulatedDamage
+      ? `${weightedBattleStateKey(weighted)}|damage:${accumulatedDamageKey(weighted.accumulatedDamage)}`
+      : weightedBattleStateKey(weighted);
     const existing = groups.get(key);
     if (existing === undefined) {
       groups.set(key, {
@@ -118,6 +142,54 @@ export function mergeWeightedBattleStates(
     );
   }
   return merged;
+}
+
+function compressDamageHistories(
+  states: readonly WeightedBattleState[],
+  maximum: number,
+  distributionTracker?: { compressed: boolean },
+): readonly WeightedBattleState[] {
+  if (!Number.isSafeInteger(maximum) || maximum < 1) {
+    throw new InvalidProbabilityError("伤害分布状态上限必须是正整数。");
+  }
+  const byFutureState = new Map<string, WeightedBattleState[]>();
+  for (const state of states) {
+    const key = weightedBattleStateKey(state);
+    const group = byFutureState.get(key);
+    if (group === undefined) byFutureState.set(key, [state]);
+    else group.push(state);
+  }
+  return [...byFutureState.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .flatMap(([, group]) => {
+      if (group.length <= maximum) return group;
+      if (distributionTracker !== undefined) {
+        distributionTracker.compressed = true;
+      }
+      const sorted = [...group].sort((left, right) =>
+        left.accumulatedDamage.totalDamage - right.accumulatedDamage.totalDamage,
+      );
+      const chunkSize = Math.ceil(sorted.length / maximum);
+      const compressed: WeightedBattleState[] = [];
+      for (let index = 0; index < sorted.length; index += chunkSize) {
+        const merged = mergeWeightedBattleStates(sorted.slice(index, index + chunkSize));
+        if (merged[0] !== undefined) compressed.push(merged[0]);
+      }
+      return compressed;
+    });
+}
+
+function accumulatedDamageKey(damage: AccumulatedBattleDamage): string {
+  return [
+    damage.shieldDamage,
+    damage.lancerDamage,
+    damage.marksmanDamage,
+    damage.totalDamage,
+    damage.normalDamage,
+    damage.extraDamage,
+    damage.primaryAttackDamage,
+    damage.extraAttackDamage,
+  ].map((value) => Object.is(value, -0) ? "0" : JSON.stringify(value)).join(",");
 }
 
 function validateAccumulatedDamage(

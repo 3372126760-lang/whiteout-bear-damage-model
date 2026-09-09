@@ -13,7 +13,10 @@ type OptimizationWorkerResponse =
 self.onmessage = (event: MessageEvent<UiOptimizationCoreRequest>) => {
   let response: OptimizationWorkerResponse;
   try {
-    response = { ok: true, result: runOptimizationCore(event.data) };
+    response = {
+      ok: true,
+      result: runOptimizationCore(event.data, { includeTopDamageInterval: true }),
+    };
   } catch (error) {
     response = {
       ok: false,
@@ -22,4 +25,3 @@ self.onmessage = (event: MessageEvent<UiOptimizationCoreRequest>) => {
   }
   self.postMessage(response);
 };
-

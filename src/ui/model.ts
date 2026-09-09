@@ -29,6 +29,7 @@ import type {
 import type { TroopLevelId, TroopType } from "../domain/troop";
 import type { TroopSkillId } from "../domain/troopSkill";
 import type { BattlePreparationConfig, TownBuffSize } from "../domain/preparation";
+import type { DamageDistributionResult } from "../domain/probability";
 import { getHeroById } from "../game-data/heroes/bodyHeroQueries";
 import {
   getAllBodySkillOptions,
@@ -66,13 +67,25 @@ export interface TroopFormValues {
   readonly count: string;
   readonly troopLevelId: string;
   readonly attackPercent: string;
-  readonly defensePercent: string;
   readonly penetrationPercent: string;
-  readonly healthPercent: string;
+}
+
+export type CalculatorInputMode = "battleReport" | "rally";
+
+export interface BattleReportInputState {
+  readonly troops: Readonly<Record<TroopType, TroopFormValues>>;
+}
+
+export interface RallyInputState {
+  readonly generalAttackPercent: string;
+  readonly generalPenetrationPercent: string;
+  readonly troops: Readonly<Record<TroopType, TroopFormValues>>;
 }
 
 export interface CalculatorFormState {
-  readonly troops: Readonly<Record<TroopType, TroopFormValues>>;
+  readonly inputMode: CalculatorInputMode;
+  readonly battleReportInputState: BattleReportInputState;
+  readonly rallyInputState: RallyInputState;
   readonly bodyHeroIds: readonly string[];
   readonly headHeroIds: Readonly<Record<TroopType, string>>;
   readonly fireCrystalSkillIds: readonly string[];
@@ -129,6 +142,8 @@ export interface UiCalculationResult {
   readonly improvementAbsolute: number;
   readonly improvementRatio: number | null;
   readonly averageRoundDamage: number;
+  readonly lower95: number;
+  readonly upper95: number;
   readonly expectedDamageByTroop: Readonly<Record<TroopType, number>>;
   /** 使用最终出征容量与整数分配后的兵数，经正式基础引擎得到的单回合 D0。 */
   readonly baseDamageByTroop: Readonly<Record<TroopType, number>>;
@@ -139,6 +154,9 @@ export interface UiCalculationResult {
   readonly skippedSkills: readonly UiSkillNotice[];
   readonly result: TenRoundExpectedDamageResult;
 }
+
+/** 熊坑固定攻击属于基础A加算，数值单位为UI百分数点。 */
+export const BEAR_PIT_ATTACK_PERCENT = 25;
 
 type UiBattleInput = Parameters<typeof calculateTenRoundExpectedDamage>[0] & {
   readonly preparation: BattlePreparationConfig;
@@ -170,6 +188,8 @@ export interface UiOptimizationResult {
   readonly cacheMisses: number;
   readonly elapsedMs: number;
   readonly performanceWarning: string | null;
+  /** 排名完成后仅为第1名生成，不参与候选评分。 */
+  readonly topDamageInterval?: Pick<DamageDistributionResult, "lower95" | "upper95" | "method">;
 }
 
 export type UiOptimizationCoreRequest =
@@ -190,9 +210,9 @@ export type UiOptimizationCoreRequest =
     };
 
 export type UiOptimizationCoreResult =
-  | { readonly kind: "body"; readonly result: BodyOptimizationResult }
-  | { readonly kind: "ratio"; readonly result: TroopRatioOptimizationResult }
-  | { readonly kind: "full"; readonly result: BattleSetupOptimizationResult };
+  | { readonly kind: "body"; readonly result: BodyOptimizationResult; readonly topDamageInterval?: UiOptimizationResult["topDamageInterval"] }
+  | { readonly kind: "ratio"; readonly result: TroopRatioOptimizationResult; readonly topDamageInterval?: UiOptimizationResult["topDamageInterval"] }
+  | { readonly kind: "full"; readonly result: BattleSetupOptimizationResult; readonly topDamageInterval?: UiOptimizationResult["topDamageInterval"] };
 
 export class UiInputError extends Error {
   public constructor(message: string) {
@@ -341,35 +361,33 @@ export function formatRatioPercent(value: number): string {
 }
 
 export function createDefaultFormState(): CalculatorFormState {
+  const createNeutralTroops = (): Readonly<Record<TroopType, TroopFormValues>> => ({
+    shield: { count: "0", troopLevelId: "T1", attackPercent: "0", penetrationPercent: "0" },
+    lancer: { count: "0", troopLevelId: "T1", attackPercent: "0", penetrationPercent: "0" },
+    marksman: { count: "0", troopLevelId: "T1", attackPercent: "0", penetrationPercent: "0" },
+  });
   return {
-    troops: {
-      shield: { count: "1824", troopLevelId: "T11-FC10", attackPercent: "1119.9", defensePercent: "0", penetrationPercent: "521.7", healthPercent: "0" },
-      lancer: { count: "1823", troopLevelId: "T10-FC7", attackPercent: "867.0", defensePercent: "0", penetrationPercent: "543.2", healthPercent: "0" },
-      marksman: { count: "178723", troopLevelId: "T12-FC10", attackPercent: "1765.0", defensePercent: "0", penetrationPercent: "1551.9", healthPercent: "0" },
+    inputMode: "battleReport",
+    battleReportInputState: { troops: createNeutralTroops() },
+    rallyInputState: {
+      generalAttackPercent: "0",
+      generalPenetrationPercent: "0",
+      troops: createNeutralTroops(),
     },
-    bodyHeroIds: [
-      "body-skill.probability-penetration-50",
-      "body-skill.attack-25",
-      "body-skill.defense-reduction-25",
-      "body-skill.defense-reduction-25",
-    ],
-    headHeroIds: {
-      shield: "hero.head.heketuo",
-      lancer: "hero.head.miya",
-      marksman: "hero.head.hengdelike",
-    },
+    bodyHeroIds: ["", "", "", ""],
+    headHeroIds: { shield: "", lancer: "", marksman: "" },
     fireCrystalSkillIds: [],
     topK: "10",
     ratioStepPercent: "0.01",
     optimizeHead: false,
     optimizeFireCrystal: false,
     preparation: {
-      hunterHeartLevel: "10",
-      bearSlayerLevel: "10",
+      hunterHeartLevel: "0",
+      bearSlayerLevel: "0",
       town: { attack: "none", penetration: "none", defenseReduction: "none", marchCapacity: "none" },
-      pet: { attackLevel: "9", penetrationLevel: "9", defenseReductionLevel: "10", capacityLevel: "10" },
-      weaponLevels: { shield: "0", lancer: "5", marksman: "2" },
-      marksmanBlazingStarLevel: "1",
+      pet: { attackLevel: "0", penetrationLevel: "0", defenseReductionLevel: "0", capacityLevel: "0" },
+      weaponLevels: { shield: "0", lancer: "0", marksman: "0" },
+      marksmanBlazingStarLevel: "0",
       lancerT12SkillLevel: "0",
     },
   };
@@ -381,8 +399,9 @@ export function displayPercentToDecimal(value: string | number): number {
 }
 
 export function calculateDisplayedTotalTroops(form: CalculatorFormState): number {
+  const troops = activeTroopFormValues(form);
   return TROOP_TYPES.reduce((sum, troopType) => {
-    const raw = form.troops[troopType].count.trim();
+    const raw = troops[troopType].count.trim();
     if (!raw) return sum;
     const count = Number(raw);
     return Number.isSafeInteger(count) && count >= 0 ? sum + count : sum;
@@ -398,9 +417,15 @@ export function calculateInputTroopTotal(form: CalculatorFormState): number {
   return counts.shield + counts.lancer + counts.marksman;
 }
 
-export function calculateUiDamage(form: CalculatorFormState): UiCalculationResult {
+export function calculateUiDamage(
+  form: CalculatorFormState,
+  options: { readonly includeDamageInterval?: boolean } = {},
+): UiCalculationResult {
   const built = buildBattleInput(form);
-  const result = calculateTenRoundExpectedDamage(built.input);
+  const includeDamageInterval = options.includeDamageInterval ?? true;
+  const result = calculateTenRoundExpectedDamage(built.input, {
+    includeDamageDistribution: includeDamageInterval,
+  });
   const baseline = calculateTenRoundExpectedDamage({
     troops: built.input.troops,
     bodyHeroIds: [],
@@ -415,6 +440,10 @@ export function calculateUiDamage(form: CalculatorFormState): UiCalculationResul
   const improvementRatio = baseline.expectedTotalDamage === 0
     ? null
     : result.expectedTotalDamage / baseline.expectedTotalDamage - 1;
+  const interval = result.damageDistribution ?? {
+    lower95: result.expectedTotalDamage,
+    upper95: result.expectedTotalDamage,
+  };
   const finalTotalTroopCount = result.preparation?.capacity.finalMarchCapacity
     ?? built.input.troops.reduce((sum, troop) => sum + troop.troopCount, 0);
   const finalTroopCounts = result.preparation?.troopCounts;
@@ -448,6 +477,8 @@ export function calculateUiDamage(form: CalculatorFormState): UiCalculationResul
     improvementAbsolute,
     improvementRatio,
     averageRoundDamage: result.expectedTotalDamage / result.context.totalRounds,
+    lower95: interval.lower95,
+    upper95: interval.upper95,
     expectedDamageByTroop: result.expectedDamageByTroop,
     baseDamageByTroop,
     percentageNormalization: built.percentageNormalization,
@@ -526,14 +557,21 @@ export function createOptimizationRequest(
   };
 }
 
-export function runOptimizationCore(request: UiOptimizationCoreRequest): UiOptimizationCoreResult {
+export function runOptimizationCore(
+  request: UiOptimizationCoreRequest,
+  options: { readonly includeTopDamageInterval?: boolean } = {},
+): UiOptimizationCoreResult {
+  let core: UiOptimizationCoreResult;
   if (request.kind === "body") {
-    return { kind: request.kind, result: optimizeBodyHeroes(request.input, request.options) };
+    core = { kind: request.kind, result: optimizeBodyHeroes(request.input, request.options) };
+  } else if (request.kind === "ratio") {
+    core = { kind: request.kind, result: optimizeTroopRatio(request.input, request.options) };
+  } else {
+    core = { kind: request.kind, result: optimizeBattleSetup(request.input, request.options) };
   }
-  if (request.kind === "ratio") {
-    return { kind: request.kind, result: optimizeTroopRatio(request.input, request.options) };
-  }
-  return { kind: request.kind, result: optimizeBattleSetup(request.input, request.options) };
+  if (options.includeTopDamageInterval !== true) return core;
+  const topDamageInterval = calculateTopOptimizationDamageInterval(request, core);
+  return topDamageInterval === undefined ? core : { ...core, topDamageInterval };
 }
 
 export function toUiOptimizationResult(
@@ -555,6 +593,7 @@ export function toUiOptimizationResult(
       cacheMisses: core.result.stats.cacheMisses,
       elapsedMs: core.result.stats.elapsedMs,
       performanceWarning: null,
+      ...(core.topDamageInterval === undefined ? {} : { topDamageInterval: core.topDamageInterval }),
       rows: core.result.results.map((candidate) => createOptimizationRow({
         rank: candidate.rank,
         score: candidate.score,
@@ -578,6 +617,7 @@ export function toUiOptimizationResult(
       cacheMisses: core.result.stats.cacheMisses,
       elapsedMs: core.result.stats.elapsedMs,
       performanceWarning: null,
+      ...(core.topDamageInterval === undefined ? {} : { topDamageInterval: core.topDamageInterval }),
       rows: core.result.results.map((candidate) => createOptimizationRow({
         rank: candidate.rank,
         score: candidate.score,
@@ -600,6 +640,7 @@ export function toUiOptimizationResult(
     cacheMisses: core.result.stats.cacheMisses,
     elapsedMs: core.result.stats.elapsedMs,
     performanceWarning: null,
+    ...(core.topDamageInterval === undefined ? {} : { topDamageInterval: core.topDamageInterval }),
     rows: core.result.results.map((candidate) => createOptimizationRow({
       rank: candidate.rank,
       score: candidate.score,
@@ -611,6 +652,82 @@ export function toUiOptimizationResult(
       fireCrystalSkillIds: currentFire,
     })),
   };
+}
+
+function calculateTopOptimizationDamageInterval(
+  request: UiOptimizationCoreRequest,
+  core: UiOptimizationCoreResult,
+): UiOptimizationResult["topDamageInterval"] {
+  const top = core.result.results[0];
+  if (top === undefined) return undefined;
+
+  if (request.kind === "body" && core.kind === "body") {
+    const { enemyBaseDefense, ...input } = request.input;
+    return intervalForInput(
+      { ...input, bodyHeroIds: core.result.results[0]!.heroIds },
+      enemyBaseDefense,
+    );
+  }
+
+  if (request.kind === "ratio" && core.kind === "ratio") {
+    const candidate = core.result.results[0]!;
+    return intervalForInput({
+      troops: troopsForOptimization(request.input.troopSettings, candidate.troopCounts),
+      bodyHeroIds: request.input.bodyHeroIds,
+      ...(request.input.headFormation === undefined ? {} : { headFormation: request.input.headFormation }),
+      ...(request.input.fireCrystal === undefined ? {} : { fireCrystal: request.input.fireCrystal }),
+      ...(request.input.preparation === undefined ? {} : { preparation: request.input.preparation }),
+      ...(request.input.damageChannel === undefined ? {} : { damageChannel: request.input.damageChannel }),
+    }, request.input.enemyBaseDefense);
+  }
+
+  if (request.kind === "full" && core.kind === "full") {
+    const candidate = core.result.results[0]!;
+    return intervalForInput({
+      troops: troopsForOptimization(request.input.troopSettings, candidate.troopCounts),
+      bodyHeroIds: candidate.heroIds,
+      ...(request.input.headFormation === undefined ? {} : { headFormation: request.input.headFormation }),
+      ...(request.input.fireCrystal === undefined ? {} : { fireCrystal: request.input.fireCrystal }),
+      ...(request.input.preparation === undefined ? {} : { preparation: request.input.preparation }),
+      ...(request.input.damageChannel === undefined ? {} : { damageChannel: request.input.damageChannel }),
+    }, request.input.enemyBaseDefense);
+  }
+  return undefined;
+}
+
+function intervalForInput(
+  input: Parameters<typeof calculateTenRoundExpectedDamage>[0],
+  enemyBaseDefense: number | undefined,
+): NonNullable<UiOptimizationResult["topDamageInterval"]> {
+  const result = calculateTenRoundExpectedDamage(input, {
+    includeDamageDistribution: true,
+    ...(enemyBaseDefense === undefined ? {} : { enemyBaseDefense }),
+  });
+  const distribution = result.damageDistribution;
+  if (distribution === undefined) {
+    return {
+      lower95: result.expectedTotalDamage,
+      upper95: result.expectedTotalDamage,
+      method: "exactStateDistribution",
+    };
+  }
+  return {
+    lower95: distribution.lower95,
+    upper95: distribution.upper95,
+    method: distribution.method,
+  };
+}
+
+function troopsForOptimization(
+  settings: Readonly<Record<TroopType, TroopRatioSettings>>,
+  counts: TroopCounts,
+): Parameters<typeof calculateTenRoundExpectedDamage>[0]["troops"] {
+  return TROOP_TYPES.map((troopType) => ({
+    troopType,
+    troopCount: counts[troopType],
+    troopLevelId: settings[troopType].troopLevelId,
+    stats: settings[troopType].stats,
+  }));
 }
 
 export function estimateFullCandidateCount(form: CalculatorFormState): number {
@@ -634,12 +751,15 @@ export function applyOptimizationRow(
     calculateInputTroopTotal(form),
     row.ratios,
   );
+  const updatedTroops = Object.fromEntries(TROOP_TYPES.map((troopType) => [
+    troopType,
+    { ...activeTroopFormValues(form)[troopType], count: String(inputTroopCounts[troopType]) },
+  ])) as Readonly<Record<TroopType, TroopFormValues>>;
   return {
     ...form,
-    troops: Object.fromEntries(TROOP_TYPES.map((troopType) => [
-      troopType,
-      { ...form.troops[troopType], count: String(inputTroopCounts[troopType]) },
-    ])) as Readonly<Record<TroopType, TroopFormValues>>,
+    ...(form.inputMode === "battleReport"
+      ? { battleReportInputState: { troops: updatedTroops } }
+      : { rallyInputState: { ...form.rallyInputState, troops: updatedTroops } }),
     bodyHeroIds,
     headHeroIds: {
       shield: row.headFormation.shieldHeroId ?? "",
@@ -659,16 +779,24 @@ function buildBattleInput(form: CalculatorFormState): {
     TroopType,
     { attack: PercentageNormalization; penetration: PercentageNormalization }
   >;
+  const activeTroops = activeTroopFormValues(form);
+  const rallyGeneralAttack = form.inputMode === "rally"
+    ? readFiniteNumber(form.rallyInputState.generalAttackPercent, "部队攻击")
+    : 0;
+  const rallyGeneralPenetration = form.inputMode === "rally"
+    ? readFiniteNumber(form.rallyInputState.generalPenetrationPercent, "部队穿透")
+    : 0;
   const troops = TROOP_TYPES.map((troopType) => {
-    const values = form.troops[troopType];
+    const values = activeTroops[troopType];
     const troopCount = readNonNegativeSafeInteger(values.count, `${TROOP_LABELS[troopType]}数量`);
     const level = troopLevels[values.troopLevelId as keyof typeof troopLevels];
     if (level === undefined) throw new UiInputError(`${TROOP_LABELS[troopType]}等级不存在。`);
     if (level.status !== "known") throw new UiInputError(`${values.troopLevelId} 的等级常数尚未提供，不能计算。`);
-    const attackPercent = readFiniteNumber(values.attackPercent, `${TROOP_LABELS[troopType]}攻击加成`);
-    const defensePercent = readFiniteNumber(values.defensePercent, `${TROOP_LABELS[troopType]}防御加成`);
-    const penetrationPercent = readFiniteNumber(values.penetrationPercent, `${TROOP_LABELS[troopType]}穿透加成`);
-    const healthPercent = readFiniteNumber(values.healthPercent, `${TROOP_LABELS[troopType]}生命加成`);
+    const attackPercent = readFiniteNumber(values.attackPercent, `${TROOP_LABELS[troopType]}攻击加成`)
+      + rallyGeneralAttack
+      + BEAR_PIT_ATTACK_PERCENT;
+    const penetrationPercent = readFiniteNumber(values.penetrationPercent, `${TROOP_LABELS[troopType]}穿透加成`)
+      + rallyGeneralPenetration;
     const attackDecimal = displayPercentToDecimal(attackPercent);
     const penetrationDecimal = displayPercentToDecimal(penetrationPercent);
     percentageNormalization[troopType] = {
@@ -680,7 +808,7 @@ function buildBattleInput(form: CalculatorFormState): {
       troopCount,
       troopLevelId: level.id as TroopLevelId,
       // Stage 24 API契约使用百分数点；decimal已在UI适配层验证并用于解释。
-      stats: { attackPercent, defensePercent, penetrationPercent, healthPercent },
+      stats: { attackPercent, penetrationPercent },
     };
   });
 
@@ -733,6 +861,7 @@ function buildPreparationConfig(
   }
   return {
     baseMarchCapacity: calculateInputTroopTotal(form),
+    capacityMode: form.inputMode === "rally" ? "useFinalTroops" : "expandBaseTroops",
     otherFixedCapacity: 0,
     expert: {
       hunterHeartLevel: readIntegerInRange(form.preparation.hunterHeartLevel, "猎手之心等级", 0, 11),
@@ -773,11 +902,20 @@ function formToHeadFormation(form: CalculatorFormState): HeadFormation {
 }
 
 function parseTroopCounts(form: CalculatorFormState): TroopCounts {
+  const troops = activeTroopFormValues(form);
   return {
-    shield: readNonNegativeSafeInteger(form.troops.shield.count, "盾兵数量"),
-    lancer: readNonNegativeSafeInteger(form.troops.lancer.count, "矛兵数量"),
-    marksman: readNonNegativeSafeInteger(form.troops.marksman.count, "射手数量"),
+    shield: readNonNegativeSafeInteger(troops.shield.count, "盾兵数量"),
+    lancer: readNonNegativeSafeInteger(troops.lancer.count, "矛兵数量"),
+    marksman: readNonNegativeSafeInteger(troops.marksman.count, "射手数量"),
   };
+}
+
+export function activeTroopFormValues(
+  form: CalculatorFormState,
+): Readonly<Record<TroopType, TroopFormValues>> {
+  return form.inputMode === "battleReport"
+    ? form.battleReportInputState.troops
+    : form.rallyInputState.troops;
 }
 
 function toTroopCounts(troops: Parameters<typeof calculateTenRoundExpectedDamage>[0]["troops"]): TroopCounts {

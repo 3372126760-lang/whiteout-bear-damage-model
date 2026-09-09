@@ -1,6 +1,8 @@
 # 发布候选检查清单
 
-版本日期：2026-09-09  
+版本：v0.2
+
+验证日期：2026-09-10
 形态：纯前端 React + TypeScript + Vite 静态网站。伤害计算、精确概率状态传播和优化器均在用户浏览器中运行，不需要自建后端服务器。
 
 ## 冻结的核心规则
@@ -13,11 +15,11 @@
 - `defenseReduction` 当前等效倍率为 `1 + sum(r)`，不使用 `1 / (1-r)`，也不建立未经确认的敌方防御映射。
 - 打熊固定 10 回合、敌方全盾、无限生命、不提前结束。
 
-## 2026-09-09 验证结果
+## 2026-09-10 验证结果
 
-- [x] Vitest：34 个测试文件，361/361 通过。
+- [x] Vitest：39 个测试文件，411/411 通过。
 - [x] TypeScript：`tsc --noEmit` 通过。
-- [x] Vite production build：105 个模块，构建通过。
+- [x] Vite production build：112 个模块，构建通过。
 - [x] Benchmark：构建和固定样本全部完成，详见 `performance-benchmark.md`。
 - [x] Production preview：使用 `npm.cmd run preview -- --host 127.0.0.1 --port 4173` 启动成功。
 - [x] 生产首页、主 JS、CSS 和 optimizer worker 均从 `dist/` 正常加载。
@@ -27,10 +29,10 @@
 
 ## 生产产物
 
-- `dist/index.html`：418 B。
-- `dist/assets/index-CAJbzOeZ.js`：367.30 kB，gzip 106.62 kB。
-- `dist/assets/index-CZ5_FKuN.css`：5.51 kB，gzip 1.77 kB。
-- `dist/assets/optimizer.worker-DokK98lB.js`：143.26 kB。
+- `dist/index.html`：0.47 kB，gzip 0.35 kB。
+- `dist/assets/index-2HO6guWd.js`：395.12 kB，gzip 114.88 kB。
+- `dist/assets/index-EhSE1vL_.css`：6.06 kB，gzip 1.89 kB。
+- `dist/assets/optimizer.worker-DihtVeVo.js`：176.37 kB。
 - Vite 使用相对资源基址 `./`，产物不依赖开发机路径、VS Code 或本机 Node 运行时。
 
 ## 当前 Pending
@@ -48,11 +50,11 @@
 - 含多个概率技能的默认真实阵容会显著增加每个候选的精确状态传播成本。优化已放入 Web Worker，不会冻结页面主线程，但完成时间可能达到数分钟。
 - 正式算法利用凹可分离上界剪枝，不逐点运行约5000万次完整模拟；UI继续在Web Worker中运行。
 - 当前没有回归战报数据集，因此“公式与真实战报的系统误差”仍无法量化。
-- 当前工作目录尚未初始化为 Git 仓库；正式部署前应先建立可回滚的版本存档。
+- 95%区间不使用正态近似：状态规模可控时精确保留累计伤害路径；复杂配置超出历史状态上限时，在相同未来 BattleState 内使用确定性相邻分箱后求分位。该回退不影响期望伤害和优化排序。
 
 ## 部署前人工检查
 
-- [ ] 初始化 Git，提交当前发布候选并打版本标签。
+- [ ] 提交当前发布候选并打版本标签。
 - [ ] 选择静态托管平台并确认其发布目录为 `dist/`。
 - [ ] 在目标托管平台测试首页、静态资源、刷新和 HTTPS。
 - [ ] 用至少一个移动端窄屏和一个桌面浏览器复核布局。

@@ -9,6 +9,7 @@ import {
   createPeriodicExtraDamageScenario,
   createPeriodicStackingScenario,
   advanceDurationEffectsAfterRound,
+  combineProbabilityOnlySkillInstances,
 } from "../engine/probability";
 import { resolveSupportedCatalogEffects } from "../engine/skills/resolveSupportedCatalogEffects";
 import { bodyHeroCatalog } from "../game-data/heroes/bodyHeroCatalog";
@@ -113,7 +114,8 @@ export function createTenRoundExpectedDamageCalculator(
     const dynamicSkills = [...catalogDynamicSkills, ...allAdditionalSkills.filter(
       (skill) => skill.trigger.type !== "always",
     )];
-    const dynamicScenarios = dynamicSkills.map((skill, index) =>
+    const calculationDynamicSkills = combineProbabilityOnlySkillInstances(dynamicSkills);
+    const dynamicScenarios = calculationDynamicSkills.map((skill, index) =>
       compileSupportedSkillScenario(skill, `instance.${index}`),
     );
     const scenario = combineScenarios([

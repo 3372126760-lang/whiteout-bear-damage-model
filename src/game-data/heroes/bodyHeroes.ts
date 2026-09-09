@@ -384,6 +384,11 @@ export const bodyHeroes = {
         frequency: "oncePerRound",
         attemptsPerRound: 3,
         durationRounds: 1,
+        instanceAggregation: {
+          groupId: "bear.miya.next-round-vulnerable-50",
+          stackingMode: "probabilityOnly",
+          magnitudeStacking: false,
+        },
       },
       lifecycle: { durationRounds: 1, activationTiming: "nextRound", refreshMode: "refresh" },
     },

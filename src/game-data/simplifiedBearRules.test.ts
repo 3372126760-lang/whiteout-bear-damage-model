@@ -48,6 +48,46 @@ describe("当前正式熊模型的简化伤害语义", () => {
     }
   });
 
+  it.each([
+    [1, 0.875, 1.4375],
+    [2, 0.984375, 1.4921875],
+    [3, 0.998046875, 1.4990234375],
+  ] as const)("%i个米娅只合并触发概率，易伤幅度不叠加", (instanceCount, activeProbability, expectedMultiplier) => {
+    const bodyHeroIds = Array.from(
+      { length: instanceCount === 3 ? 2 : instanceCount },
+      () => "hero.body.miya" as const,
+    );
+    const result = calculateTenRoundExpectedDamage({
+      troops,
+      bodyHeroIds,
+      ...(instanceCount === 3
+        ? { headFormation: { lancerHeroId: "hero.head.miya" as const } }
+        : {}),
+    });
+    expect(
+      result.expectedDamageByRound[0]!.expectedMultipliersByTroop.shield
+        ?.byEffectType.vulnerable,
+    ).toBeCloseTo(1, 12);
+    expect(
+      result.expectedDamageByRound[1]!.expectedMultipliersByTroop.shield
+        ?.byEffectType.vulnerable,
+    ).toBeCloseTo(expectedMultiplier, 12);
+    expect(expectedMultiplier).toBeLessThanOrEqual(1.5);
+    expect(expectedMultiplier).toBeCloseTo(1 + activeProbability * 0.5, 12);
+  });
+
+  it("米娅车头1加米娅车身2不会把三个期望易伤率线性相加", () => {
+    const result = calculateTenRoundExpectedDamage({
+      troops,
+      bodyHeroIds: ["hero.body.miya", "hero.body.miya"],
+      headFormation: { lancerHeroId: "hero.head.miya" },
+    });
+    const multiplier = result.expectedDamageByRound[1]!
+      .expectedMultipliersByTroop.shield?.byEffectType.vulnerable;
+    expect(multiplier).toBeCloseTo(1.4990234375, 12);
+    expect(multiplier).not.toBeCloseTo(2.3125, 6);
+  });
+
   it("布拉德利第三技能只在5/6/9/10回合提供damageIncrease+30%", () => {
     const result = calculateTenRoundExpectedDamage({ troops, bodyHeroIds: [], headFormation: { marksmanHeroId: "hero.head.buladeli" } });
     const ordinaryRoundDamage = result.expectedDamageByRound[0]!.expectedTotalDamage;

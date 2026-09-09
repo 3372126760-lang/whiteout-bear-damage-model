@@ -10,3 +10,4 @@ export * from "./periodicStackingEffects";
 export * from "./extraDamageEvents";
 export * from "./extraAttackEvents";
 export * from "./probabilityMath";
+export * from "./combineProbabilityOnlySkillInstances";

@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { calculateBattleDamage } from "../../app/calculateBattleDamage";
+import { calculateTenRoundExpectedDamage } from "../../app/calculateTenRoundExpectedDamage";
 import type {
   BodyOptimizationInput,
   BodyOptimizationResult,
@@ -116,6 +117,28 @@ describe("optimizeBodyHeroes", () => {
     expect(result.formalSimulationCount).toBe(1);
     expect(result.detailedSimulationCount).toBe(3);
     expect(result.compiledFastPath).toBe(true);
+  });
+
+  it("米娅车头加两个米娅车身的fast scorer与正式概率语义一致", () => {
+    const input = {
+      ...testInput,
+      headFormation: { lancerHeroId: "hero.head.miya" as const },
+    };
+    const optimized = optimizeBodyHeroes(input, {
+      bodyCount: 2,
+      topK: 1,
+      candidateHeroIds: ["hero.body.miya"],
+    });
+    const direct = calculateTenRoundExpectedDamage({
+      ...input,
+      bodyHeroIds: ["hero.body.miya", "hero.body.miya"],
+    });
+    expect(optimized.compiledFastPath).toBe(true);
+    expect(optimized.results[0]!.score).toBeCloseTo(direct.expectedTotalDamage, 8);
+    expect(
+      optimized.results[0]!.expectedDamageByRound[1]!
+        .expectedMultipliersByTroop.shield?.byEffectType.vulnerable,
+    ).toBeCloseTo(1.4990234375, 12);
   });
 
   it("手动候选池包含 pending 或 unsupported 英雄时明确报错", () => {

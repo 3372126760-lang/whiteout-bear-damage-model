@@ -47,6 +47,49 @@ describe("车身编译期望评分器", () => {
     );
   });
 
+  it("两个米娅车身在编译路径中合并概率而不叠加易伤幅度", () => {
+    const baseline = calculateTenRoundExpectedDamage(input);
+    const context = tryCreateStaticBodyBattleContext(input, baseline)!;
+    const effect = compileSelected([
+      "body-skill.probability-vulnerable-50",
+      "body-skill.probability-vulnerable-50",
+    ]);
+    const compiled = simulateCompiledBodyDetails(context, effect);
+    expect(
+      compiled.expectedDamageByRound[0]!.expectedMultipliersByTroop.shield
+        ?.byEffectType.vulnerable,
+    ).toBeCloseTo(1, 12);
+    expect(
+      compiled.expectedDamageByRound[1]!.expectedMultipliersByTroop.shield
+        ?.byEffectType.vulnerable,
+    ).toBeCloseTo(1.4921875, 12);
+  });
+
+  it("米娅车头1加车身2在compiled fast path与正式引擎一致", () => {
+    const withMiaHead = {
+      ...input,
+      headFormation: { lancerHeroId: "hero.head.miya" as const },
+    };
+    compareCompiledWithFormal(withMiaHead, [
+      "body-skill.probability-vulnerable-50",
+      "body-skill.probability-vulnerable-50",
+    ]);
+    const baseline = calculateTenRoundExpectedDamage({ ...withMiaHead, bodyHeroIds: [] });
+    const context = tryCreateStaticBodyBattleContext(
+      { ...withMiaHead, bodyHeroIds: [] },
+      baseline,
+    )!;
+    const effect = compileSelected([
+      "body-skill.probability-vulnerable-50",
+      "body-skill.probability-vulnerable-50",
+    ]);
+    const compiled = simulateCompiledBodyDetails(context, effect);
+    expect(
+      compiled.expectedDamageByRound[1]!.expectedMultipliersByTroop.shield
+        ?.byEffectType.vulnerable,
+    ).toBeCloseTo(1.4990234375, 12);
+  });
+
   it("纯评分入口只返回number，兵种评分入口不构造逐回合明细", () => {
     const baseline = calculateTenRoundExpectedDamage(input);
     const context = tryCreateStaticBodyBattleContext(input, baseline);

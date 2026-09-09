@@ -11,6 +11,10 @@ import { getHeadHeroById } from "../../game-data/heroes/headHeroQueries";
 import { resolveAutomaticTroopSkills } from "../../game-data/troop-skills/automaticTroopSkills";
 import { calculateBaseTotalDamage } from "../../rulesets/bear/base-damage";
 import { TROOP_DAMAGE_EFFECT_BY_TROOP } from "../../engine/skills/effectTypes";
+import {
+  combineProbabilityOnlySkillInstances,
+  getProbabilityOnlyAggregation,
+} from "../../engine/probability";
 
 const ROUND_COUNT = 10;
 const TROOP_TYPES: readonly TroopType[] = ["shield", "lancer", "marksman"];
@@ -54,6 +58,8 @@ export interface CompiledBodyEffect {
   readonly options: readonly BodySkillOption[];
   readonly representativeHeroIds: readonly BodyHeroId[];
   readonly expectedContributionVector: Float64Array;
+  /** 尚未与车头等固定实例合并的 probability-only 技能。 */
+  readonly probabilityOnlySkills: readonly Skill[];
 }
 
 export interface StaticBodyBattleContext {
@@ -62,6 +68,7 @@ export interface StaticBodyBattleContext {
   readonly cells: readonly StaticRoundTroopCell[];
   readonly replacementMask: Uint8Array;
   readonly troopTemplates: Readonly<Record<TroopType, BaseTroopGroupInput>>;
+  readonly externalProbabilityOnlySkills: readonly Skill[];
 }
 
 interface StaticRoundTroopCell {
@@ -105,9 +112,14 @@ export function compileBodyEffect(
     selected.reduce((maximum, item) => Math.max(maximum, item.numericId + 1), 0),
   );
   const heroIds: BodyHeroId[] = [];
+  const probabilityOnlySkills: Skill[] = [];
   for (const item of selected) {
     counts[item.numericId] = (counts[item.numericId] ?? 0) + 1;
-    addVector(vector, item.expectedContributionVector);
+    if (item.option.skill !== null && getProbabilityOnlyAggregation(item.option.skill) !== undefined) {
+      probabilityOnlySkills.push(item.option.skill);
+    } else {
+      addVector(vector, item.expectedContributionVector);
+    }
     if (item.option.representativeHeroId !== null) {
       heroIds.push(item.option.representativeHeroId);
     }
@@ -123,6 +135,7 @@ export function compileBodyEffect(
     options: selected.map((item) => item.option),
     representativeHeroIds: heroIds,
     expectedContributionVector: vector,
+    probabilityOnlySkills,
   };
 }
 
@@ -169,7 +182,14 @@ export function tryCreateStaticBodyBattleContext(
       });
     }
   }
-  return { baselineResult, referenceTroopCounts, cells, replacementMask, troopTemplates };
+  return {
+    baselineResult,
+    referenceTroopCounts,
+    cells,
+    replacementMask,
+    troopTemplates,
+    externalProbabilityOnlySkills: collectExternalProbabilityOnlySkills(input),
+  };
 }
 
 /** 热循环：无技能解析、Map/Set、回合对象或解释文本，只返回一个number。 */
@@ -187,6 +207,7 @@ export function scoreBodyTroopsFast(
   effect: CompiledBodyEffect,
   targetTroopCounts: TroopCounts = context.referenceTroopCounts,
 ): FastBodyScore {
+  const boundEffect = bindProbabilityOnlyGroups(context, effect);
   const troopDamages: Record<TroopType, number> = {
     shield: 0,
     lancer: 0,
@@ -210,12 +231,12 @@ export function scoreBodyTroopsFast(
         const external = cell.externalMultipliers[zone];
         const body = context.replacementMask[vectorIndex(roundIndex, troopIndex, zone)] === 1
           ? 0
-          : effect.expectedContributionVector[vectorIndex(roundIndex, troopIndex, zone)]!;
+          : boundEffect.expectedContributionVector[vectorIndex(roundIndex, troopIndex, zone)]!;
         commonScale *= (external + body) / external;
       }
       const normalZone = "normalAttackDamageIncrease" as const;
       const externalNormal = cell.externalMultipliers[normalZone];
-      const bodyNormal = effect.expectedContributionVector[
+      const bodyNormal = boundEffect.expectedContributionVector[
         vectorIndex(roundIndex, troopIndex, normalZone)
       ]!;
       const normalDamage = cell.normalDamage * countScale * commonScale * (
@@ -236,6 +257,7 @@ export function simulateCompiledBodyDetails(
   effect: CompiledBodyEffect,
   targetTroopCounts: TroopCounts = context.referenceTroopCounts,
 ): CompiledBodyDetailedScore {
+  const boundEffect = bindProbabilityOnlyGroups(context, effect);
   const exactBaseDamageByTroop = calculateExactBaseDamageByTroop(
     context.troopTemplates,
     targetTroopCounts,
@@ -259,17 +281,17 @@ export function simulateCompiledBodyDetails(
       let commonScale = 1;
       for (const zone of COMMON_ZONES) {
         const external = cell.externalMultipliers[zone];
-        const body = bodyContribution(context, effect, roundIndex, troopIndex, zone);
+        const body = bodyContribution(context, boundEffect, roundIndex, troopIndex, zone);
         commonScale *= (external + body) / external;
       }
       const normalZone = "normalAttackDamageIncrease" as const;
       const externalNormal = cell.externalMultipliers[normalZone];
-      const bodyNormal = bodyContribution(context, effect, roundIndex, troopIndex, normalZone);
+      const bodyNormal = bodyContribution(context, boundEffect, roundIndex, troopIndex, normalZone);
       const normalScale = (externalNormal + bodyNormal) / externalNormal;
       const exactCommonMultiplier = combinedCommonMultiplier(
         cell.allExternalMultipliers,
         context,
-        effect,
+        boundEffect,
         roundIndex,
         troopIndex,
         troopType,
@@ -291,7 +313,7 @@ export function simulateCompiledBodyDetails(
         for (const zone of BODY_ZONES) {
           byEffectType[zone] = byEffectType[zone] + bodyContribution(
             context,
-            effect,
+            boundEffect,
             roundIndex,
             troopIndex,
             zone,
@@ -437,15 +459,19 @@ function createBreakdown(normalDamage: number, extraDamage: number) {
 
 function compileOptionVector(option: BodySkillOption): Float64Array {
   if (option.skill === null) return new Float64Array(VECTOR_LENGTH);
-  if (option.skill.effects.length !== 1) {
-    throw new Error(`车身技能选项 ${option.id} 必须恰好包含一个独立乘区效果。`);
+  return compileSkillVector(option.skill);
+}
+
+function compileSkillVector(skill: Skill): Float64Array {
+  if (skill.effects.length !== 1) {
+    throw new Error(`车身技能 ${skill.id} 必须恰好包含一个独立乘区效果。`);
   }
-  const effect = option.skill.effects[0]!;
+  const effect = skill.effects[0]!;
   const zone = canonicalBodyZone(effect.type);
   if (zone === null || effect.zoneAggregation === "replace" || effect.conditions?.length) {
-    throw new Error(`车身技能选项 ${option.id} 超出当前可证明的编译评分范围。`);
+    throw new Error(`车身技能 ${skill.id} 超出当前可证明的编译评分范围。`);
   }
-  const activeProbabilities = expectedActiveProbabilityByRound(option.skill);
+  const activeProbabilities = expectedActiveProbabilityByRound(skill);
   const vector = new Float64Array(VECTOR_LENGTH);
   for (let roundIndex = 0; roundIndex < ROUND_COUNT; roundIndex += 1) {
     const round = roundIndex + 1;
@@ -458,6 +484,72 @@ function compileOptionVector(option: BodySkillOption): Float64Array {
     }
   }
   return vector;
+}
+
+/**
+ * 把车身与固定车头中共享同一状态的实例先合并概率，再计算一次固定幅度。
+ * 返回的差量向量是“全部实例期望 - 固定实例期望”，可安全叠加到无车身基线。
+ */
+function bindProbabilityOnlyGroups(
+  context: StaticBodyBattleContext,
+  effect: CompiledBodyEffect,
+): CompiledBodyEffect {
+  if (effect.probabilityOnlySkills.length === 0) return effect;
+  const vector = effect.expectedContributionVector.slice();
+  const groupIds = [...new Set(effect.probabilityOnlySkills.map((skill) =>
+    getProbabilityOnlyAggregation(skill)!.groupId
+  ))];
+  for (const groupId of groupIds) {
+    const bodySkills = effect.probabilityOnlySkills.filter(
+      (skill) => getProbabilityOnlyAggregation(skill)?.groupId === groupId,
+    );
+    const externalSkills = context.externalProbabilityOnlySkills.filter(
+      (skill) => getProbabilityOnlyAggregation(skill)?.groupId === groupId,
+    );
+    const combinedVector = compileCombinedProbabilityOnlyVector([
+      ...externalSkills,
+      ...bodySkills,
+    ]);
+    const externalVector = compileCombinedProbabilityOnlyVector(externalSkills);
+    for (let index = 0; index < vector.length; index += 1) {
+      vector[index] = (vector[index] ?? 0) + combinedVector[index]! - externalVector[index]!;
+    }
+  }
+  return {
+    ...effect,
+    expectedContributionVector: vector,
+    probabilityOnlySkills: [],
+  };
+}
+
+function compileCombinedProbabilityOnlyVector(skills: readonly Skill[]): Float64Array {
+  const vector = new Float64Array(VECTOR_LENGTH);
+  for (const combined of combineProbabilityOnlySkillInstances(skills)) {
+    addVector(vector, compileSkillVector(combined));
+  }
+  return vector;
+}
+
+function collectExternalProbabilityOnlySkills(
+  input: TenRoundExpectedDamageInput,
+): readonly Skill[] {
+  const skills: Skill[] = [];
+  for (const heroId of [
+    input.headFormation?.shieldHeroId,
+    input.headFormation?.lancerHeroId,
+    input.headFormation?.marksmanHeroId,
+  ]) {
+    if (heroId === undefined) continue;
+    const hero = getHeadHeroById(heroId);
+    if (hero === undefined) continue;
+    for (const definition of hero.headSkills) {
+      if (definition.status === "supported" && definition.skill !== null) {
+        skills.push(definition.skill);
+      }
+    }
+  }
+  skills.push(...resolveAutomaticTroopSkills(input.troops, input.preparation?.troopSkillLevels));
+  return skills.filter((skill) => getProbabilityOnlyAggregation(skill) !== undefined);
 }
 
 function expectedActiveProbabilityByRound(skill: Skill): Float64Array {

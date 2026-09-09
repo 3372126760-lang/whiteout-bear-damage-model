@@ -535,6 +535,30 @@ function validateTrigger(
         "requiredSkillId只能用于event=onSkillTrigger。",
       );
     }
+    if (
+      trigger.attemptsPerRound !== undefined &&
+      (!Number.isSafeInteger(trigger.attemptsPerRound) || trigger.attemptsPerRound < 1)
+    ) {
+      issue(issues, "invalid-attempt-count", path, "attemptsPerRound必须是正安全整数。");
+    }
+    if (
+      trigger.instanceAggregation !== undefined &&
+      !trigger.instanceAggregation.groupId.trim()
+    ) {
+      issue(issues, "invalid-probability-group", path, "概率实例聚合groupId不能为空。");
+    }
+    if (
+      trigger.instanceAggregation !== undefined &&
+      (trigger.instanceAggregation.stackingMode !== "probabilityOnly" ||
+        trigger.instanceAggregation.magnitudeStacking !== false)
+    ) {
+      issue(
+        issues,
+        "invalid-probability-aggregation",
+        path,
+        "当前概率实例聚合只支持probabilityOnly且magnitudeStacking=false。",
+      );
+    }
   }
   if (
     trigger.type === "everyNRounds" &&

@@ -94,6 +94,16 @@ export type EffectActivationTiming = "immediate" | "nextRound";
 export type StackLimitBehavior = "keep" | "refreshDuration";
 
 /**
+ * 多个技能实例命中同一个非叠幅状态时，先合并触发概率，再应用一次固定幅度。
+ * groupId 来自数据层；引擎不得通过英雄名称推断分组。
+ */
+export interface ProbabilityInstanceAggregation {
+  readonly groupId: string;
+  readonly stackingMode: "probabilityOnly";
+  readonly magnitudeStacking: false;
+}
+
+/**
  * 概率判定所依附的事件阶段。
  * 这里只表达数据，不声明真实游戏中任一技能在哪个阶段判定。
  */
@@ -238,6 +248,8 @@ export type SkillTrigger =
       readonly attemptsPerRound?: number;
       /** explicitSchedule使用；仅在列出的回合判定。 */
       readonly triggerRounds?: readonly number[];
+      /** 多实例共享同一状态时的精确概率合并规则。 */
+      readonly instanceAggregation?: ProbabilityInstanceAggregation;
     }
   | {
       readonly type: "everyNRounds";

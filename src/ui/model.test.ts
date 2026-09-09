@@ -10,7 +10,6 @@ import {
   createDefaultFormState,
   createOptimizationRequest,
   displayPercentToDecimal,
-  exclusiveWeaponLevelOptions,
   formatBodySkillOptionLabel,
   formatHeadHeroOptionLabel,
   formatRatioPercent,
@@ -56,7 +55,7 @@ const createLegacyPlayerFixture = (): ReturnType<typeof createDefaultFormState> 
       hunterHeartLevel: "10",
       bearSlayerLevel: "10",
       pet: { attackLevel: "9", penetrationLevel: "9", defenseReductionLevel: "10", capacityLevel: "10" },
-      weaponLevels: { shield: "0", lancer: "5", marksman: "2" },
+      rallyWeaponBuff: { attackPercent: "22.5", penetrationPercent: "0" },
       marksmanBlazingStarLevel: "1",
     },
   };
@@ -79,7 +78,7 @@ describe("Stage 25 UI adapter",()=>{
       hunterHeartLevel:"0",bearSlayerLevel:"0",
       town:{attack:"none",penetration:"none",defenseReduction:"none",marchCapacity:"none"},
       pet:{attackLevel:"0",penetrationLevel:"0",defenseReductionLevel:"0",capacityLevel:"0"},
-      weaponLevels:{shield:"0",lancer:"0",marksman:"0"},marksmanBlazingStarLevel:"0",lancerT12SkillLevel:"0",
+      rallyWeaponBuff:{attackPercent:"0",penetrationPercent:"0"},marksmanBlazingStarLevel:"0",lancerT12SkillLevel:"0",
     });
     expect(form.preparation).not.toHaveProperty("baseMarchCapacity");
     expect(calculateInputTroopTotal(form)).toBe(0);
@@ -144,11 +143,9 @@ describe("Stage 25 UI adapter",()=>{
     expect(details.some((detail)=>detail.sourceSummary?.includes("尼莫")&&detail.skillName.includes("伤害 +30%")&&detail.summary.includes("5、6、9、10"))).toBe(true);
     expect(nimo.explorationSkills?.map((skill)=>skill.name)).toEqual(["三断斩","剑气","孤傲"]);
   });
-  it("尼莫专武攻击buff仍由英雄数据生效",()=>{
-    const form=createLegacyPlayerFixture();
-    const selected={...form,headHeroIds:{...form.headHeroIds,shield:"hero.head.nimo"}};
-    const withWeapon={...selected,preparation:{...selected.preparation,weaponLevels:{...selected.preparation.weaponLevels,shield:"5"}}};
-    expect(fastDamage(withWeapon).expectedTotalDamage).toBeGreaterThan(fastDamage(selected).expectedTotalDamage);
+  it("历史英雄专武类型数据仍保留但不驱动当前UI输入",()=>{
+    const nimo=headHeroOptions.find((hero)=>hero.id==="hero.head.nimo")!;
+    expect(nimo.exclusiveWeaponBuffType).toBe("attack");
   });
   it("容量配置进入UI计算并保持兵种和等于finalMarchCapacity",()=>{
     const f=createLegacyPlayerFixture();
@@ -163,10 +160,8 @@ describe("Stage 25 UI adapter",()=>{
     expect(values(bearSlayerLevelOptions)).toEqual(Array.from({length:11},(_,index)=>index));
     expect(values(petBuffLevelOptions)).toEqual(Array.from({length:11},(_,index)=>index));
     expect(values(petCapacityLevelOptions)).toEqual(Array.from({length:11},(_,index)=>index));
-    expect(values(exclusiveWeaponLevelOptions)).toEqual([0,1,2,3,4,5]);
     expect(values(troopSkillLevelOptions)).toEqual(Array.from({length:25},(_,index)=>index));
     expect(values(topKOptions)).toEqual(Array.from({length:100},(_,index)=>index+1));
-    expect(exclusiveWeaponLevelOptions.map((option)=>option.label)).toEqual(["0级（0%）","1级（5%）","2级（7.5%）","3级（10%）","4级（12.5%）","5级（15%）"]);
   });
   it("英雄选项直接显示数据层数值且不暴露内部状态或确认计数",()=>{
     const attack=bodySkillOptions.find((option)=>option.id==="body-skill.attack-25")!;
@@ -222,7 +217,7 @@ describe("Stage 25 UI adapter",()=>{
     expect(result.percentageNormalization.shield.penetration.multiplier).toBeCloseTo(3.519,12);
   });
 
-  it("车头专武Buff与集结基础A/P严格分区",()=>{
+  it("集结专武输入进入Buff小区且不改变基础A/P或Skill小区",()=>{
     const form=createDefaultFormState();
     const rally={...form,inputMode:"rally" as const,rallyInputState:{
       ...form.rallyInputState,
@@ -233,13 +228,42 @@ describe("Stage 25 UI adapter",()=>{
         lancer:{...form.rallyInputState.troops.lancer,count:"100"},
         marksman:{...form.rallyInputState.troops.marksman,count:"100"},
       },
-    },headHeroIds:{shield:"hero.head.nimo",lancer:"",marksman:"hero.head.alongsuo"},preparation:{...form.preparation,weaponLevels:{shield:"5",lancer:"0",marksman:"5"}}};
+    },preparation:{
+      ...form.preparation,
+      pet:{...form.preparation.pet,attackLevel:"5",penetrationLevel:"5"},
+      rallyWeaponBuff:{attackPercent:"10",penetrationPercent:"20"},
+    }};
     const result=fastDamage(rally);
     const multipliers=result.result.expectedDamageByRound[0]!.expectedMultipliersByTroop.shield!.byEffectType;
     expect(result.percentageNormalization.shield.attack.displayPercent).toBeCloseTo(575.1,12);
     expect(result.percentageNormalization.shield.penetration.displayPercent).toBeCloseTo(251.9,12);
     expect(multipliers.buffAttack).toBeCloseTo(1.15,12);
-    expect(multipliers.buffPenetration).toBeCloseTo(1.15,12);
+    expect(multipliers.buffPenetration).toBeCloseTo(1.25,12);
+    expect(multipliers.attack).toBe(1);
+    expect(multipliers.penetration).toBe(1);
+  });
+
+  it("正式计算与优化器共享相同的集结专武Buff输入",()=>{
+    const form=createDefaultFormState();
+    const configured={
+      ...form,
+      ratioStepPercent:"100",
+      topK:"3",
+      battleReportInputState:{troops:{
+        shield:{...form.battleReportInputState.troops.shield,count:"0"},
+        lancer:{...form.battleReportInputState.troops.lancer,count:"0"},
+        marksman:{...form.battleReportInputState.troops.marksman,count:"5000"},
+      }},
+      preparation:{...form.preparation,rallyWeaponBuff:{attackPercent:"10",penetrationPercent:"20"}},
+    };
+    const damage=fastDamage(configured);
+    const request=createOptimizationRequest(configured,"ratio");
+    if(request.kind!=="ratio") throw new Error("应生成比例优化请求");
+    expect(request.input.preparation?.additionalDamageBuffs).toEqual({attackRate:.1,penetrationRate:.2});
+    const optimized=runOptimizationCore(request);
+    if(optimized.kind!=="ratio") throw new Error("应返回比例优化结果");
+    expect(optimized.result.results[0]?.troopCounts).toEqual({shield:0,lancer:0,marksman:5000});
+    expect(optimized.result.results[0]?.score).toBeCloseTo(damage.expectedTotalDamage,8);
   });
 
   it("集结模式直接使用最终130310兵数并忽略全部容量扩展历史状态",()=>{
@@ -298,7 +322,7 @@ describe("Stage 25 UI adapter",()=>{
         ...original.preparation,
         marksmanBlazingStarLevel:"0",
         lancerT12SkillLevel:"0",
-        weaponLevels:{shield:"0",lancer:"0",marksman:"0"},
+        rallyWeaponBuff:{attackPercent:"0",penetrationPercent:"0"},
       },
     };
     const request=createOptimizationRequest(deterministic,"ratio");

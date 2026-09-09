@@ -24,9 +24,6 @@ describe("计算器UI有限选项与技能说明", () => {
       "出征等级",
       "炽火凝星",
       "矛兵 T12 技能",
-      "盾兵车头专武技能等级",
-      "矛兵车头专武技能等级",
-      "射手车头专武技能等级",
       "返回方案数",
     ]) {
       expect(screen.getByLabelText(label).tagName).toBe("SELECT");
@@ -77,9 +74,11 @@ describe("计算器UI有限选项与技能说明", () => {
     for (const label of ["盾兵车头","矛兵车头","射手车头","车身 1","车身 2","车身 3","车身 4"]) {
       expect((screen.getByLabelText(label) as HTMLSelectElement).value).toBe("");
     }
-    for (const label of ["猎手之心","巨熊克星","盾兵车头专武技能等级","矛兵车头专武技能等级","射手车头专武技能等级","炽火凝星","矛兵 T12 技能"]) {
+    for (const label of ["猎手之心","巨熊克星","炽火凝星","矛兵 T12 技能"]) {
       expect((screen.getByLabelText(label) as HTMLSelectElement).value).toBe("0");
     }
+    expect((screen.getByLabelText("集结专武攻击加成 %") as HTMLInputElement).value).toBe("0");
+    expect((screen.getByLabelText("集结专武穿透加成 %") as HTMLInputElement).value).toBe("0");
     expect(screen.getByText("基础阵容兵数")).toBeTruthy();
     expect(screen.getAllByText("0").length).toBeGreaterThan(0);
     expect(screen.getByText("由盾兵、矛兵、射手原始输入自动求和")).toBeTruthy();
@@ -92,6 +91,21 @@ describe("计算器UI有限选项与技能说明", () => {
     fireEvent.change(screen.getByLabelText("盾兵兵数"), { target: { value: "1" } });
     expect(screen.getAllByText("1").length).toBeGreaterThan(0);
     expect(screen.queryByLabelText("基础出征容量")).toBeNull();
+  });
+
+  it("车头区域使用两个统一专武Buff输入且删除三个专武等级选择器", () => {
+    render(<CalculatorApp />);
+    for (const label of ["盾兵车头专武技能等级","矛兵车头专武技能等级","射手车头专武技能等级"]) {
+      expect(screen.queryByLabelText(label)).toBeNull();
+      expect(screen.queryByText(label)).toBeNull();
+    }
+    const attack = screen.getByLabelText("集结专武攻击加成 %") as HTMLInputElement;
+    const penetration = screen.getByLabelText("集结专武穿透加成 %") as HTMLInputElement;
+    expect(attack.tagName).toBe("INPUT");
+    expect(penetration.tagName).toBe("INPUT");
+    expect(attack.value).toBe("0");
+    expect(penetration.value).toBe("0");
+    expect(attack.closest(".two-col")).toBe(penetration.closest(".two-col"));
   });
 
   it("英雄选项不显示内部状态或确认数量，已确认的米娅幸运加护直接展示", () => {

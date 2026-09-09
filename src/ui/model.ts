@@ -42,7 +42,6 @@ import { troopLevels } from "../game-data/troops/troopLevels";
 import { getFireCrystalSkills, getTroopSkillById } from "../game-data/troop-skills/troopSkillQueries";
 import {
   BEAR_SLAYER_CAPACITY_PER_LEVEL,
-  EXCLUSIVE_WEAPON_RATES,
   HUNTER_HEART_RATES,
   PET_BUFF_RATES,
   PET_CAPACITY_PER_LEVEL,
@@ -98,7 +97,10 @@ export interface CalculatorFormState {
     readonly bearSlayerLevel: string;
     readonly town: Readonly<Record<"attack" | "penetration" | "defenseReduction" | "marchCapacity", TownBuffSize>>;
     readonly pet: Readonly<Record<"attackLevel" | "penetrationLevel" | "defenseReductionLevel" | "capacityLevel", string>>;
-    readonly weaponLevels: Readonly<Record<TroopType, string>>;
+    readonly rallyWeaponBuff: {
+      readonly attackPercent: string;
+      readonly penetrationPercent: string;
+    };
     readonly marksmanBlazingStarLevel: string;
     readonly lancerT12SkillLevel: string;
   };
@@ -257,9 +259,6 @@ export const petBuffLevelOptions = PET_BUFF_RATES.map((rate, level) =>
 export const petCapacityLevelOptions = Array.from({ length: 11 }, (_, level) =>
   levelOption(level, `+${(level * PET_CAPACITY_PER_LEVEL).toLocaleString("zh-CN")} 容量`),
 );
-export const exclusiveWeaponLevelOptions = EXCLUSIVE_WEAPON_RATES.map((rate, level) =>
-  levelOption(level, formatPercent(rate)),
-);
 export const troopSkillLevelOptions = Array.from({ length: 25 }, (_, level) =>
   levelOption(level),
 );
@@ -386,7 +385,7 @@ export function createDefaultFormState(): CalculatorFormState {
       bearSlayerLevel: "0",
       town: { attack: "none", penetration: "none", defenseReduction: "none", marchCapacity: "none" },
       pet: { attackLevel: "0", penetrationLevel: "0", defenseReductionLevel: "0", capacityLevel: "0" },
-      weaponLevels: { shield: "0", lancer: "0", marksman: "0" },
+      rallyWeaponBuff: { attackPercent: "0", penetrationPercent: "0" },
       marksmanBlazingStarLevel: "0",
       lancerT12SkillLevel: "0",
     },
@@ -828,7 +827,7 @@ function buildBattleInput(form: CalculatorFormState): {
     }
     return skillId as TroopSkillId;
   });
-  const preparation = buildPreparationConfig(form, headFormation);
+  const preparation = buildPreparationConfig(form);
 
   return {
     input: {
@@ -843,22 +842,15 @@ function buildBattleInput(form: CalculatorFormState): {
   };
 }
 
-function buildPreparationConfig(
-  form: CalculatorFormState,
-  headFormation: HeadFormation,
-): BattlePreparationConfig {
-  const levelsByHeroId: Partial<Record<HeadHeroId, number>> = {};
-  for (const troopType of TROOP_TYPES) {
-    const heroId = headFormation[`${troopType}HeroId`];
-    if (heroId !== undefined) {
-      levelsByHeroId[heroId] = readIntegerInRange(
-        form.preparation.weaponLevels[troopType],
-        `${TROOP_LABELS[troopType]}车头专武技能等级`,
-        0,
-        5,
-      );
-    }
-  }
+function buildPreparationConfig(form: CalculatorFormState): BattlePreparationConfig {
+  const rallyWeaponAttackRate = displayPercentToDecimal(readFiniteNumber(
+    form.preparation.rallyWeaponBuff.attackPercent,
+    "集结专武攻击加成",
+  ));
+  const rallyWeaponPenetrationRate = displayPercentToDecimal(readFiniteNumber(
+    form.preparation.rallyWeaponBuff.penetrationPercent,
+    "集结专武穿透加成",
+  ));
   return {
     baseMarchCapacity: calculateInputTroopTotal(form),
     capacityMode: form.inputMode === "rally" ? "useFinalTroops" : "expandBaseTroops",
@@ -874,7 +866,10 @@ function buildPreparationConfig(
       defenseReductionLevel: readIntegerInRange(form.preparation.pet.defenseReductionLevel, "宠物减防等级", 0, 10),
       capacityLevel: readIntegerInRange(form.preparation.pet.capacityLevel, "宠物出征等级", 0, 10),
     },
-    exclusiveWeapons: { levelsByHeroId },
+    additionalDamageBuffs: {
+      attackRate: rallyWeaponAttackRate,
+      penetrationRate: rallyWeaponPenetrationRate,
+    },
     troopSkillLevels: {
       marksmanBlazingStarLevel: readIntegerInRange(form.preparation.marksmanBlazingStarLevel, "炽火凝星等级", 0, 24),
       lancerT12SkillLevel: readIntegerInRange(form.preparation.lancerT12SkillLevel, "矛兵T12技能等级", 0, 24),

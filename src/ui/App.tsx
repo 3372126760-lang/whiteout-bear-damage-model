@@ -4,7 +4,7 @@ import { CHANGELOG_ENTRIES } from "../app/changelog";
 import {
   activeTroopFormValues, applyOptimizationRow, bodySkillOptions, calculateDisplayedTotalTroops,
   calculateUiDamage, createDefaultFormState, createOptimizationRequest,
-  bearSlayerLevelOptions, exclusiveWeaponLevelOptions, fireCrystalSkillOptions,
+  bearSlayerLevelOptions, fireCrystalSkillOptions,
   formatBodySkillOptionLabel, formatHeadHeroOptionLabel, formatRatioPercent,
   getSelectedHeroSkillDetails, headHeroOptions, hunterHeartLevelOptions,
   knownTroopLevelOptions, petBuffLevelOptions,
@@ -81,7 +81,10 @@ export function CalculatorApp() {
         <h3>兵种技能等级</h3><div className="two-col"><label>炽火凝星<LevelSelect value={form.preparation.marksmanBlazingStarLevel} options={troopSkillLevelOptions} onChange={(value) => updatePreparation("marksmanBlazingStarLevel", value)} /></label><label>矛兵 T12 技能<LevelSelect value={form.preparation.lancerT12SkillLevel} options={troopSkillLevelOptions} onChange={(value) => updatePreparation("lancerT12SkillLevel", value)} /></label></div>
 
         <h3>车头英雄</h3><div className="three-col">{TROOP_TYPES.map((type) => <label key={type}>{TROOP_LABELS[type]}车头<select value={form.headHeroIds[type]} onChange={(event) => setForm((current) => ({ ...current, headHeroIds: { ...current.headHeroIds, [type]: event.target.value } }))}><option value="">不选择</option>{headHeroOptions.filter((hero) => hero.troopType === type).map((hero) => <option value={hero.id} key={hero.id}>{formatHeadHeroOptionLabel(hero)}</option>)}</select></label>)}</div>
-        <div className="three-col">{TROOP_TYPES.map((type) => <label key={type}>{TROOP_LABELS[type]}车头专武技能等级<LevelSelect value={form.preparation.weaponLevels[type]} options={exclusiveWeaponLevelOptions} onChange={(value) => setForm((current) => ({ ...current, preparation: { ...current.preparation, weaponLevels: { ...current.preparation.weaponLevels, [type]: value } } }))} /></label>)}</div>
+        <div className="two-col">
+          <label>集结专武攻击加成 %<input type="number" value={form.preparation.rallyWeaponBuff.attackPercent} onChange={(event) => setForm((current) => ({ ...current, preparation: { ...current.preparation, rallyWeaponBuff: { ...current.preparation.rallyWeaponBuff, attackPercent: event.target.value } } }))} /></label>
+          <label>集结专武穿透加成 %<input type="number" value={form.preparation.rallyWeaponBuff.penetrationPercent} onChange={(event) => setForm((current) => ({ ...current, preparation: { ...current.preparation, rallyWeaponBuff: { ...current.preparation.rallyWeaponBuff, penetrationPercent: event.target.value } } }))} /></label>
+        </div>
         <h3>四车身（允许重复）</h3><div className="two-col">{form.bodyHeroIds.map((id, index) => <label key={index}>车身 {index + 1}<select value={id} onChange={(event) => setForm((current) => { const ids = [...current.bodyHeroIds]; ids[index] = event.target.value; return { ...current, bodyHeroIds: ids }; })}><option value="">不选择</option>{bodySkillOptions.map((option) => <option value={option.id} key={option.id}>{formatBodySkillOptionLabel(option)}</option>)}</select></label>)}</div>
         {selectedHeroSkillDetails.length > 0 && <div className="skill-detail-panel"><h3>当前技能效果</h3>{selectedHeroSkillDetails.map((detail, index) => <div className={`skill-detail ${detail.status}`} key={`${detail.ownerId}.${detail.skillName}.${index}`}><strong>【{detail.skillName}】</strong>{detail.status !== "applied" && <span>{detail.status === "pending" ? "待确认" : detail.status === "notApplicable" ? "不影响对熊输出" : "资料说明"}</span>}{detail.sourceSummary && <p>来源英雄：{detail.sourceSummary}</p>}{detail.summary && <p>{detail.summary}</p>}{detail.totalSummary && <p>本 skill 小区合计：{detail.totalSummary}</p>}{detail.reason && <small>暂不计入原因：{detail.reason}</small>}</div>)}</div>}
         <details className="pending-catalog"><summary>查看当前待确认技能清单（{visiblePendingSkillDetails.length}项）</summary>{visiblePendingSkillDetails.map((detail) => <p key={`${detail.ownerId}.${detail.skillName}`}><strong>{detail.ownerName} · {detail.skillName}</strong><small>{detail.reason}</small></p>)}</details>

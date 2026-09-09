@@ -34,12 +34,12 @@ describe("真实技能目录审计", () => {
   it("当前skill、hero和troop skill数据全部通过校验", () => {
     expect(validateSkillData()).toEqual({
       valid: true,
-      checkedCount: 55,
+      checkedCount: 56,
       issues: [],
     });
     expect(validateHeroData()).toEqual({
       valid: true,
-      checkedCount: 37,
+      checkedCount: 38,
       issues: [],
     });
     expect(validateTroopSkillData()).toEqual({
@@ -543,17 +543,17 @@ describe("真实技能目录审计", () => {
     const report = generateSkillSupportReport();
 
     expect(report.totals.skills).toEqual({
-      supported: 51,
+      supported: 52,
       pending: 4,
       unsupported: 0,
     });
     expect(report.totals.effects).toEqual({
-      supported: 52,
+      supported: 53,
       pending: 0,
       unsupported: 0,
     });
     expect(report.byCategory.body.skills).toEqual({
-      supported: 24,
+      supported: 25,
       pending: 4,
       unsupported: 0,
     });

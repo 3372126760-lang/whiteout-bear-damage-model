@@ -28,26 +28,18 @@ const troops = [
 
 const body = optimizeBodyHeroes(
   { troops },
-  {
-    bodyCount: 4,
-    candidateHeroIds: [
-      "hero.body.jiexi",
-      "hero.body.shuyun",
-      "hero.body.hengdelike",
-      "hero.body.suoniya",
-    ],
-  },
+  { bodyCount: 4 },
 );
 const ratio = optimizeTroopRatio({
   totalTroopCount: 60_000,
   troopSettings,
-  bodyHeroIds: ["hero.body.jiexi"],
+  bodyHeroIds: ["hero.body.shuyun"],
 });
 
-// 保持默认1%和bodyCount=4，但用单英雄候选池形成快速、可重复的联合基准。
+// 正式0.01% exact联合基准，按9个技能选项、每类最多2份。
 const joint = optimizeBattleSetup(
   { totalTroopCount: 60_000, troopSettings },
-  { candidateHeroIds: ["hero.body.jiexi"] },
+  {},
 );
 
 // 第二十三步全维度基准：66个比例 × 1个车身 × 3个盾头 × 6个火晶配置。
@@ -59,7 +51,7 @@ const full = optimizeFullBattleSetup(
     body: {
       mode: "optimize",
       bodyCount: 4,
-      candidateHeroIds: ["hero.body.jiexi"],
+      candidateHeroIds: ["hero.body.shuyun"],
     },
     head: {
       shield: {
@@ -104,5 +96,5 @@ console.log(JSON.stringify({
     performanceWarning: full.performanceWarning,
     stats: full.stats,
   },
-  theoreticalRatioAndAllBodies: 5_151 * 14_950,
+  theoreticalRatioAndAllBodies: 50_015_001 * 414,
 }, null, 2));

@@ -10,7 +10,7 @@ import {
   getSupportedBodyHeroes,
   getUnsupportedBodyHeroes,
 } from "../../game-data/heroes/bodyHeroQueries";
-import { combinationsWithReplacement } from "../combinationsWithReplacement";
+import { combinationsWithReplacement, combinationsWithReplacementLimited } from "../combinationsWithReplacement";
 import {
   UnavailableOptimizerHeroError,
 } from "./errors";
@@ -39,9 +39,8 @@ const testInput: BodyOptimizationInput = {
   ],
 };
 
-const jiexi = "hero.body.jiexi" as const;
-const jiesaier = "hero.body.jiesaier" as const;
 const shuyun = "hero.body.shuyun" as const;
+const hendrick = "hero.body.hengdelike" as const;
 
 describe("combinationsWithReplacement", () => {
   it("允许四个相同元素", () => {
@@ -49,6 +48,15 @@ describe("combinationsWithReplacement", () => {
 
     expect(combinations).toContainEqual(["A", "A", "A", "A"]);
     expect(combinations).toContainEqual(["B", "B", "B", "B"]);
+  });
+
+  it("自动搜索限制同一技能最多2份", () => {
+    const combinations = combinationsWithReplacementLimited(["A", "B", "C", "D"], 4, 2);
+    expect(combinations).toContainEqual(["A", "A", "B", "B"]);
+    expect(combinations).toContainEqual(["A", "A", "B", "C"]);
+    expect(combinations).toContainEqual(["A", "B", "C", "D"]);
+    expect(combinations).not.toContainEqual(["A", "A", "A", "B"]);
+    expect(combinations).not.toContainEqual(["A", "A", "A", "A"]);
   });
 
   it("忽略排列顺序，不重复生成 A+B+C+D 与 D+C+B+A", () => {
@@ -69,12 +77,14 @@ describe("optimizeBodyHeroes", () => {
     defaultResult = optimizeBodyHeroes(testInput, { bodyCount: 0 });
   });
 
-  it("默认候选池只包含24个supported英雄，四车身理论组合数为17550", () => {
-    expect(getSupportedBodyHeroes()).toHaveLength(24);
-    expect(defaultResult.candidateHeroCount).toBe(24);
+  it("默认候选池聚合为9个BodySkillOption，四车身受每类最多2份约束", () => {
+    expect(getSupportedBodyHeroes()).toHaveLength(25);
+    expect(defaultResult.candidateHeroCount).toBe(9);
+    expect(defaultResult.bodySkillOptionCount).toBe(9);
     expect(defaultResult.combinationCount).toBe(1);
     expect(defaultResult.evaluatedCombinationCount).toBe(1);
-    expect(combinationsWithReplacement(getSupportedBodyHeroes(), 4)).toHaveLength(17_550);
+    expect(combinationsWithReplacement(getSupportedBodyHeroes(), 4)).toHaveLength(20_475);
+    expect(combinationsWithReplacementLimited(Array.from({ length: 9 }, (_, index) => index), 4, 2)).toHaveLength(414);
 
     for (const result of defaultResult.results) {
       expect(result.heroes).toHaveLength(0);
@@ -148,13 +158,14 @@ describe("optimizeBodyHeroes", () => {
     const result = optimizeBodyHeroes(testInput, {
       bodyCount,
       topK: 100,
-      candidateHeroIds: [jiexi, shuyun],
+      candidateHeroIds: [shuyun, hendrick],
     });
 
-    expect(result.combinationCount).toBe(bodyCount + 1);
-    expect(result.evaluatedCombinationCount).toBe(bodyCount + 1);
+    const expected = [0, 2, 3, 2, 1][bodyCount]!;
+    expect(result.combinationCount).toBe(expected);
+    expect(result.evaluatedCombinationCount).toBe(expected);
     expect(
-      result.results.every((candidate) => candidate.heroIds.length === bodyCount),
+      result.results.every((candidate) => candidate.bodySkillOptionIds.length === bodyCount),
     ).toBe(true);
   });
 
@@ -162,7 +173,7 @@ describe("optimizeBodyHeroes", () => {
     const result = optimizeBodyHeroes(testInput, {
       bodyCount: 1,
       topK: 1,
-      candidateHeroIds: [jiexi],
+      candidateHeroIds: [shuyun],
     });
     const noBody = calculateBattleDamage({ ...testInput, bodyHeroIds: [] });
     const candidate = result.results[0]!;
@@ -173,30 +184,23 @@ describe("optimizeBodyHeroes", () => {
     );
   });
 
-  it("两个不同但等伤害的组合不会按伤害去重", () => {
+  it("同效果来源英雄不会重复扩大自动搜索空间", () => {
     const result = optimizeBodyHeroes(testInput, {
       bodyCount: 1,
       topK: 10,
-      candidateHeroIds: [jiexi, jiesaier],
+      candidateHeroIds: [shuyun, "hero.body.heluonimo"],
     });
 
-    expect(result.results).toHaveLength(2);
-    expect(result.results[0]!.totalDamage).toBe(result.results[1]!.totalDamage);
-    expect(new Set(result.results.map((item) => item.heroIds[0])).size).toBe(2);
+    expect(result.candidateHeroCount).toBe(1);
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0]!.bodySkillOptionIds).toEqual(["body-skill.attack-25"]);
   });
 
-  it("单英雄候选池能生成四个相同英雄", () => {
-    const result = optimizeBodyHeroes(testInput, {
-      bodyCount: 4,
-      candidateHeroIds: [jiexi],
+  it("手动damage pipeline仍允许四个完全相同技能", () => {
+    const result = calculateBattleDamage({
+      ...testInput,
+      bodyHeroIds: [shuyun, shuyun, shuyun, shuyun] satisfies BodyHeroId[],
     });
-
-    expect(result.combinationCount).toBe(1);
-    expect(result.results[0]!.heroIds).toEqual([
-      jiexi,
-      jiexi,
-      jiexi,
-      jiexi,
-    ] satisfies BodyHeroId[]);
+    expect(result.troopDamages.shield?.multipliers.byEffectType.attack).toBe(2);
   });
 });

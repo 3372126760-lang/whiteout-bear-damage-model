@@ -20,8 +20,9 @@ import { allocateTroopsByRatio } from "./allocateTroopsByRatio";
 import { InvalidTotalTroopCountError, InvalidTroopRatioTopKError } from "./errors";
 import { generateTroopRatioGrid } from "./generateTroopRatioGrid";
 import { calculateMarchCapacity } from "../../systems/preparation";
+import { optimizeSeparableRatioGrid } from "./optimizeSeparableRatioGrid";
 
-const DEFAULT_STEP_PERCENT = 1;
+const DEFAULT_STEP_PERCENT = 0.01;
 const DEFAULT_TOP_K = 10;
 const DEFAULT_SCORING_MODE: OptimizerScoringMode = "tenRoundExpected";
 const TROOP_TYPES: readonly TroopType[] = ["shield", "lancer", "marksman"];
@@ -35,10 +36,99 @@ export interface TroopRatioOptimizerDependencies {
   readonly now?: () => number;
 }
 
-export const optimizeTroopRatio = createTroopRatioOptimizer({
+const officialDependencies: TroopRatioOptimizerDependencies = {
   calculateBattleDamage,
   calculateTenRoundExpectedDamage,
-});
+};
+
+/** 正式入口：利用已审计的 ΣKi√ni 可分离结构进行0.01%网格exact搜索。 */
+export const optimizeTroopRatio = createSeparableTroopRatioOptimizer(officialDependencies);
+
+function createSeparableTroopRatioOptimizer(
+  dependencies: TroopRatioOptimizerDependencies,
+): (input: TroopRatioOptimizationInput, options?: TroopRatioOptimizationOptions) => TroopRatioOptimizationResult {
+  const now = dependencies.now ?? (() => performance.now());
+  return (input, options = {}) => {
+    const startedAt = now();
+    const stepPercent = options.stepPercent ?? DEFAULT_STEP_PERCENT;
+    const topK = options.topK ?? DEFAULT_TOP_K;
+    const scoringMode = options.scoringMode ?? DEFAULT_SCORING_MODE;
+    validateInput(input, topK);
+
+    // legacy是兼容回归入口；正式十回合期望评分使用可分离exact算法。
+    if (scoringMode === "legacy") {
+      return createTroopRatioOptimizer(dependencies)(input, options);
+    }
+
+    const evaluator = createOptimizerBattleEvaluator({
+      calculateSingleRoundDamage: dependencies.calculateBattleDamage,
+      ...(dependencies.calculateTenRoundExpectedDamage === undefined
+        ? {}
+        : { calculateTenRoundExpectedDamage: dependencies.calculateTenRoundExpectedDamage }),
+    });
+    const evaluate = (troopCounts: TroopCounts) => evaluator.evaluate(
+      createBattleInput(input, troopCounts),
+      {
+        scoringMode,
+        legacyMetricId: "legacySingleRoundDamage",
+        legacyScore: (singleRound) => singleRound.finalDamage,
+        ...(input.enemyBaseDefense === undefined ? {} : { enemyBaseDefense: input.enemyBaseDefense }),
+      },
+    );
+    const allocationTotal = input.preparation === undefined
+      ? input.totalTroopCount
+      : calculateMarchCapacity(input.preparation).finalMarchCapacity;
+    const coefficients = deriveSeparableCoefficients(allocationTotal, evaluate);
+    const fast = optimizeSeparableRatioGrid({
+      totalTroopCount: allocationTotal,
+      coefficients,
+      stepPercent,
+      topK,
+      ...(options.minimumRatios === undefined ? {} : { minimumRatios: options.minimumRatios }),
+      ...(options.maximumRatios === undefined ? {} : { maximumRatios: options.maximumRatios }),
+    });
+    const baselineEvaluation = calculateBaselineEvaluation(input, allocationTotal, evaluate);
+    const results = fast.results.map((candidate, index) => ({
+      ...createCandidateResult(
+        candidate.ratios,
+        candidate.troopCounts,
+        evaluate(candidate.troopCounts),
+        baselineEvaluation,
+      ),
+      rank: index + 1,
+    }));
+    const elapsedMs = now() - startedAt;
+    const cache = evaluator.cache.statistics();
+    return {
+      stepPercent,
+      topK,
+      scoringMode,
+      scoreMetric: "expectedTenRoundTotalDamage",
+      optimizationMethod: "separableExact",
+      theoreticalRatioCount: fast.theoreticalRatioCount,
+      evaluatedRatioCount: fast.fastScoreCount,
+      fastScoreCount: fast.fastScoreCount,
+      uniqueTroopCountScoreCount: fast.uniqueTroopCountScoreCount,
+      detailedEvaluationCount: cache.cacheMisses,
+      coefficients,
+      elapsedMs,
+      ...(baselineEvaluation === undefined ? {} : {
+        baselineDamage: baselineEvaluation.score,
+        baselineScore: baselineEvaluation.score,
+        baselineExpectedTenRoundDamage: baselineEvaluation.expectedTenRoundDamage,
+      }),
+      stats: {
+        candidateCount: fast.theoreticalRatioCount,
+        evaluatedCount: fast.fastScoreCount,
+        cacheHits: cache.cacheHits,
+        cacheMisses: cache.cacheMisses,
+        probabilityStateCount: evaluator.probabilityStateCount(),
+        elapsedMs,
+      },
+      results,
+    };
+  };
+}
 
 export function createTroopRatioOptimizer(
   dependencies: TroopRatioOptimizerDependencies,
@@ -103,6 +193,12 @@ export function createTroopRatioOptimizer(
           ? "expectedTenRoundTotalDamage"
           : "legacySingleRoundDamage",
       evaluatedRatioCount: evaluated.length,
+      optimizationMethod: "naiveGrid",
+      theoreticalRatioCount: ratioGrid.length,
+      fastScoreCount: evaluated.length,
+      uniqueTroopCountScoreCount: evaluated.length,
+      detailedEvaluationCount: evaluator.cache.statistics().cacheMisses,
+      coefficients: null,
       elapsedMs,
       ...(baselineEvaluation === undefined
         ? {}
@@ -122,6 +218,50 @@ export function createTroopRatioOptimizer(
       },
       results,
     };
+  };
+}
+
+function deriveSeparableCoefficients(
+  totalTroopCount: number,
+  evaluate: (troopCounts: TroopCounts) => OptimizerBattleEvaluation,
+): Readonly<Record<TroopType, number>> {
+  if (totalTroopCount === 0) return { shield: 0, lancer: 0, marksman: 0 };
+  if (totalTroopCount >= TROOP_TYPES.length) {
+    const reference = allocateTroopsByRatio(totalTroopCount, {
+      shield: 33.33,
+      lancer: 33.33,
+      marksman: 33.34,
+    });
+    const evaluation = evaluate(reference);
+    const damages = expectedTroopDamages(evaluation);
+    return {
+      shield: damages.shield / Math.sqrt(reference.shield),
+      lancer: damages.lancer / Math.sqrt(reference.lancer),
+      marksman: damages.marksman / Math.sqrt(reference.marksman),
+    };
+  }
+  const coefficients = {} as Record<TroopType, number>;
+  for (const troopType of TROOP_TYPES) {
+    const counts: TroopCounts = {
+      shield: troopType === "shield" ? totalTroopCount : 0,
+      lancer: troopType === "lancer" ? totalTroopCount : 0,
+      marksman: troopType === "marksman" ? totalTroopCount : 0,
+    };
+    const evaluation = evaluate(counts);
+    const troopDamage = expectedTroopDamages(evaluation)[troopType];
+    coefficients[troopType] = troopDamage / Math.sqrt(totalTroopCount);
+  }
+  return coefficients;
+}
+
+function expectedTroopDamages(
+  evaluation: OptimizerBattleEvaluation,
+): Readonly<Record<TroopType, number>> {
+  if (evaluation.expectedResult !== undefined) return evaluation.expectedResult.expectedDamageByTroop;
+  return {
+    shield: evaluation.deterministicTenRoundResult.rounds.reduce((sum, round) => sum + round.shieldDamage, 0),
+    lancer: evaluation.deterministicTenRoundResult.rounds.reduce((sum, round) => sum + round.lancerDamage, 0),
+    marksman: evaluation.deterministicTenRoundResult.rounds.reduce((sum, round) => sum + round.marksmanDamage, 0),
   };
 }
 

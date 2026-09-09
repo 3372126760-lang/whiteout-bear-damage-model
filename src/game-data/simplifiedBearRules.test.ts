@@ -102,9 +102,10 @@ describe("当前正式熊模型的简化伤害语义", () => {
     expect(skill.effects[0]).toMatchObject({ type: "extraDamage", value: .1 });
   });
 
-  it("优化器与正式damage pipeline对韦恩使用同一十回合评分", () => {
+  it("韦恩保留正式damage pipeline能力，但不进入v0.1自动车身候选", () => {
     const direct = calculateTenRoundExpectedDamage({ troops, bodyHeroIds: ["hero.body.weien"] });
-    const optimized = optimizeBodyHeroes({ troops }, { bodyCount: 1, candidateHeroIds: ["hero.body.weien"], topK: 1 });
-    expect(optimized.results[0]!.score).toBeCloseTo(direct.expectedTotalDamage, 10);
+    expect(direct.expectedTotalDamage).toBeGreaterThan(0);
+    expect(() => optimizeBodyHeroes({ troops }, { bodyCount: 1, candidateHeroIds: ["hero.body.weien"], topK: 1 }))
+      .toThrow(/不在当前 v0.1 自动优化范围/);
   });
 });

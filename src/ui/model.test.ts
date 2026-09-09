@@ -2,14 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   applyOptimizationRow,
   bearSlayerLevelOptions,
-  bodyHeroOptions,
+  bodySkillOptions,
   calculateDisplayedTotalTroops,
   calculateInputTroopTotal,
   calculateUiDamage,
   createDefaultFormState,
   displayPercentToDecimal,
   exclusiveWeaponLevelOptions,
-  formatBodyHeroOptionLabel,
+  formatBodySkillOptionLabel,
   formatHeadHeroOptionLabel,
   formatRatioPercent,
   getSelectedHeroSkillDetails,
@@ -43,14 +43,20 @@ describe("Stage 25 UI adapter",()=>{
     expect(form.preparation).not.toHaveProperty("baseMarchCapacity");
     expect(calculateInputTroopTotal(form)).toBe(182370);
     expect(form.headHeroIds).toEqual({shield:"hero.head.heketuo",lancer:"hero.head.miya",marksman:"hero.head.hengdelike"});
-    expect(form.bodyHeroIds).toEqual(["hero.body.jiexi","hero.body.shuyun","hero.body.hengdelike","hero.body.hengdelike"]);
+    expect(form.bodyHeroIds).toEqual([
+      "body-skill.probability-penetration-50",
+      "body-skill.attack-25",
+      "body-skill.defense-reduction-25",
+      "body-skill.defense-reduction-25",
+    ]);
+    expect(form.ratioStepPercent).toBe("0.01");
   });
-  it("默认预设使用最终227370兵力并得到约518万射手D0与约13.39亿总伤害",()=>{
+  it("默认预设使用最终227370兵力并得到约518万射手D0",()=>{
     const result=calculateUiDamage(createDefaultFormState());
     expect(result.totalTroopCount).toBe(227370);
     expect(result.result.preparation?.troopCounts).toEqual({shield:2274,lancer:2273,marksman:222823});
     expect(result.baseDamageByTroop.marksman).toBeCloseTo(5184142.603580574,8);
-    expect(result.expectedTotalDamage).toBeCloseTo(1339112568.099647,4);
+    expect(result.expectedTotalDamage).toBeCloseTo(1285548065.3756616,4);
   });
   it("supported车身进入计算",()=>expect(calculateUiDamage(createDefaultFormState()).appliedSkills.length).toBeGreaterThan(0));
   it("拒绝负数兵量",()=>{const f=createDefaultFormState();const bad={...f,troops:{...f.troops,shield:{...f.troops.shield,count:"-1"}}};expect(()=>calculateUiDamage(bad)).toThrow(/非负整数/)});
@@ -84,10 +90,11 @@ describe("Stage 25 UI adapter",()=>{
     ]);
     expect(knownTroopLevelOptions.every(level=>level.constant!==null)).toBe(true);
   });
-  it("缺资料英雄不出现在正常UI选项，已确认韦恩可见",()=>{
-    const names=bodyHeroOptions.map(hero=>hero.name);
-    for(const name of ["丽娅拉","艾丝蒂拉","埃莉诺","弗洛拉"])expect(names).not.toContain(name);
-    expect(names).toContain("韦恩");
+  it("普通车身UI只展示九类技能效果，不按英雄展开",()=>{
+    expect(bodySkillOptions.map(option=>option.label)).toEqual([
+      "全军攻击 +25%","全军防御 +25%","敌军防御 -25%","全军伤害 +20%","易伤 +25%",
+      "40%概率全军穿透 +50%","50%概率易伤 +50%","20%概率增伤 +40%（持续3回合）","普攻伤害 +30%",
+    ]);
   });
   it("尼莫出现在盾兵车头选项且三个远征技能可计算，探险技能仍隔离",()=>{
     const nimo=headHeroOptions.find((hero)=>hero.id==="hero.head.nimo")!;
@@ -127,12 +134,12 @@ describe("Stage 25 UI adapter",()=>{
     expect(exclusiveWeaponLevelOptions.map((option)=>option.label)).toEqual(["0级（0%）","1级（5%）","2级（7.5%）","3级（10%）","4级（12.5%）","5级（15%）"]);
   });
   it("英雄选项直接显示数据层数值且不暴露内部状态或确认计数",()=>{
-    const jiexi=bodyHeroOptions.find((hero)=>hero.id==="hero.body.jiexi")!;
-    const hendrick=bodyHeroOptions.find((hero)=>hero.id==="hero.body.hengdelike")!;
-    expect(formatBodyHeroOptionLabel(jiexi)).toBe("杰西 · 全军穿透 +25%");
-    expect(formatBodyHeroOptionLabel(hendrick)).toBe("亨德里克 · 敌军防御 -25%");
-    for(const hero of [...bodyHeroOptions,...headHeroOptions]){
-      const label=hero.role==="body"?formatBodyHeroOptionLabel(hero):formatHeadHeroOptionLabel(hero);
+    const attack=bodySkillOptions.find((option)=>option.id==="body-skill.attack-25")!;
+    const hendrick=bodySkillOptions.find((option)=>option.id==="body-skill.defense-reduction-25")!;
+    expect(formatBodySkillOptionLabel(attack)).toBe("全军攻击 +25%");
+    expect(formatBodySkillOptionLabel(hendrick)).toBe("敌军防御 -25%");
+    for(const item of [...bodySkillOptions,...headHeroOptions]){
+      const label="representativeHeroId" in item?formatBodySkillOptionLabel(item):formatHeadHeroOptionLabel(item);
       expect(label).not.toMatch(/supported|pending|已确认\/|待确认$/);
     }
   });
@@ -146,7 +153,7 @@ describe("Stage 25 UI adapter",()=>{
     const details=getSelectedHeroSkillDetails({...form,headHeroIds:{shield:"",lancer:"",marksman:""}});
     const defense=details.filter((detail)=>detail.status==="applied"&&detail.skillName==="敌军防御 -25%");
     expect(defense).toHaveLength(1);
-    expect(defense[0]).toMatchObject({sourceSummary:"亨德里克 ×2",totalSummary:"减防 +50%"});
+    expect(defense[0]).toMatchObject({sourceSummary:"亨德里克",totalSummary:"减防 +50%"});
   });
   it("比例统一显示到0.01%",()=>{
     expect(formatRatioPercent(7)).toBe("7.00%");

@@ -1,13 +1,14 @@
 import { calculateTenRoundExpectedDamage } from "../app/calculateTenRoundExpectedDamage";
 import type { HeadFormation } from "../domain/battleDamage";
+import type { BodySkillOption, BodySkillOptionId } from "../domain/bodySkillOption";
 import type {
   BodyOptimizationOptions,
   BodyOptimizationResult,
 } from "../domain/bodyOptimization";
 import type {
-  FullBattleSetupOptimizationOptions,
-  FullBattleSetupOptimizationResult,
-} from "../domain/fullBattleSetupOptimization";
+  BattleSetupOptimizationOptions,
+  BattleSetupOptimizationResult,
+} from "../domain/battleSetupOptimization";
 import type {
   BodyHeroDefinition,
   BodyHeroId,
@@ -28,8 +29,14 @@ import type {
 import type { TroopLevelId, TroopType } from "../domain/troop";
 import type { TroopSkillId } from "../domain/troopSkill";
 import type { BattlePreparationConfig, TownBuffSize } from "../domain/preparation";
-import { getAllBodyHeroes, getHeroById, getSupportedBodyHeroes } from "../game-data/heroes/bodyHeroQueries";
-import { getAllHeadHeroes, getHeadHeroById, getHeadHeroesByTroopType } from "../game-data/heroes/headHeroQueries";
+import { getHeroById } from "../game-data/heroes/bodyHeroQueries";
+import {
+  getAllBodySkillOptions,
+  getBodySkillOptionById,
+  getBodySkillOptionForHeroId,
+  resolveBodySkillOptionHeroIds,
+} from "../game-data/body-skills";
+import { getAllHeadHeroes, getHeadHeroById } from "../game-data/heroes/headHeroQueries";
 import { troopLevels } from "../game-data/troops/troopLevels";
 import { getFireCrystalSkills, getTroopSkillById } from "../game-data/troop-skills/troopSkillQueries";
 import {
@@ -40,11 +47,10 @@ import {
   PET_CAPACITY_PER_LEVEL,
 } from "../game-data/systems/progression";
 import { optimizeBodyHeroes } from "../optimizer/body-heroes";
-import { combinationsWithReplacement } from "../optimizer/combinationsWithReplacement";
-import { optimizeFullBattleSetup } from "../optimizer/full-setup";
+import { combinationsWithReplacementLimited } from "../optimizer/combinationsWithReplacement";
+import { optimizeBattleSetup } from "../optimizer/battle-setup";
 import {
   allocateTroopsByRatio,
-  generateTroopRatioGrid,
   optimizeTroopRatio,
 } from "../optimizer/troop-ratio";
 import { calculateBaseTroopDamage } from "../rulesets/bear/base-damage";
@@ -179,14 +185,14 @@ export type UiOptimizationCoreRequest =
     }
   | {
       readonly kind: "full";
-      readonly input: Parameters<typeof optimizeFullBattleSetup>[0];
-      readonly options: FullBattleSetupOptimizationOptions;
+      readonly input: Parameters<typeof optimizeBattleSetup>[0];
+      readonly options: BattleSetupOptimizationOptions;
     };
 
 export type UiOptimizationCoreResult =
   | { readonly kind: "body"; readonly result: BodyOptimizationResult }
   | { readonly kind: "ratio"; readonly result: TroopRatioOptimizationResult }
-  | { readonly kind: "full"; readonly result: FullBattleSetupOptimizationResult };
+  | { readonly kind: "full"; readonly result: BattleSetupOptimizationResult };
 
 export class UiInputError extends Error {
   public constructor(message: string) {
@@ -211,10 +217,8 @@ export const missingTroopLevelOptions = Object.values(troopLevels)
   .filter((level) => level.status === "missing")
   .map((level) => level.id);
 
-/** 普通UI按完全相同的技能语义合并英雄；value仍是可交给引擎的代表英雄ID。 */
-export const bodyHeroOptions = getAllBodyHeroes().filter((hero) =>
-  !(hero.status === "pending" && hero.bodySkillDefinition.effectData.length === 0),
-);
+/** 普通 UI 选择技能效果；英雄身份只作为来源说明。 */
+export const bodySkillOptions = getAllBodySkillOptions();
 // UI允许选择仍有有效英雄/专武数据但尚无可计算远征技能的英雄；
 // optimizableForBear 只约束自动优化候选，不得用来隐藏手动选择。
 export const headHeroOptions = getAllHeadHeroes();
@@ -245,11 +249,6 @@ export const topKOptions = Array.from({ length: 100 }, (_, index) => ({
 }));
 
 export const visiblePendingSkillDetails: readonly UiHeroSkillDetail[] = [
-  ...bodyHeroOptions.flatMap((hero) =>
-    hero.bodySkillDefinition.status === "pending"
-      ? [toPendingDetail(hero, hero.bodySkillDefinition)]
-      : [],
-  ),
   ...headHeroOptions.flatMap((hero) =>
     hero.headSkills.flatMap((definition) =>
       definition.status === "pending" ? [toPendingDetail(hero, definition)] : [],
@@ -257,14 +256,8 @@ export const visiblePendingSkillDetails: readonly UiHeroSkillDetail[] = [
   ),
 ];
 
-export function formatBodyHeroOptionLabel(hero: BodyHeroDefinition): string {
-  if (hero.bodySkillDefinition.status === "pending") {
-    return `${hero.name}（有待确认技能）`;
-  }
-  if (hero.bodySkillDefinition.status === "unsupported") {
-    return `${hero.name}（当前暂不计算）`;
-  }
-  return `${hero.name} · ${summarizeSkill(hero.bodySkillDefinition.skill)}`;
+export function formatBodySkillOptionLabel(option: BodySkillOption): string {
+  return option.label;
 }
 
 export function formatHeadHeroOptionLabel(hero: HeadHeroDefinition): string {
@@ -281,10 +274,34 @@ export function formatHeadHeroOptionLabel(hero: HeadHeroDefinition): string {
 export function getSelectedHeroSkillDetails(form: CalculatorFormState): readonly UiHeroSkillDetail[] {
   const appliedEffects: AppliedEffectForUi[] = [];
   const details: UiHeroSkillDetail[] = [];
-  for (const heroId of form.bodyHeroIds.filter(Boolean)) {
-    const hero = getHeroById(heroId as HeroId);
-    if (hero?.role !== "body") continue;
-    collectSkillDefinitionEffects(hero, hero.bodySkillDefinition, appliedEffects, details);
+  const selectedBodyOptions = new Map<BodySkillOptionId, number>();
+  for (const optionId of form.bodyHeroIds.filter(Boolean) as BodySkillOptionId[]) {
+    selectedBodyOptions.set(optionId, (selectedBodyOptions.get(optionId) ?? 0) + 1);
+  }
+  for (const [optionId, count] of selectedBodyOptions) {
+    const option = getBodySkillOptionById(optionId);
+    if (option === undefined) continue;
+    if (option.skill === null) {
+      details.push({
+        ownerId: option.id,
+        ownerName: option.label,
+        skillName: option.label,
+        status: "notApplicable",
+        summary: `当前选择数量：${count}；当前打熊输出不增加伤害。`,
+        sourceSummary: option.sourceHeroNames.join("、") || "来源英雄资料待补充",
+      });
+      continue;
+    }
+    const effect = option.skill.effects[0]!;
+    details.push({
+      ownerId: option.id,
+      ownerName: option.label,
+      skillName: option.label,
+      status: "applied",
+      summary: [`当前选择数量：${count}`, summarizeEffectSchedule(option.skill, effect)].filter(Boolean).join("；"),
+      sourceSummary: option.sourceHeroNames.join("、") || "来源英雄资料待补充",
+      totalSummary: `${effectTotalLabel(effect)} ${formatContribution(effect, effect.value * count, true)}`,
+    });
   }
   for (const troopType of TROOP_TYPES) {
     const heroId = form.headHeroIds[troopType];
@@ -331,10 +348,10 @@ export function createDefaultFormState(): CalculatorFormState {
       marksman: { count: "178723", troopLevelId: "T12-FC10", attackPercent: "1765.0", defensePercent: "0", penetrationPercent: "1551.9", healthPercent: "0" },
     },
     bodyHeroIds: [
-      "hero.body.jiexi",
-      "hero.body.shuyun",
-      "hero.body.hengdelike",
-      "hero.body.hengdelike",
+      "body-skill.probability-penetration-50",
+      "body-skill.attack-25",
+      "body-skill.defense-reduction-25",
+      "body-skill.defense-reduction-25",
     ],
     headHeroIds: {
       shield: "hero.head.heketuo",
@@ -343,7 +360,7 @@ export function createDefaultFormState(): CalculatorFormState {
     },
     fireCrystalSkillIds: [],
     topK: "10",
-    ratioStepPercent: "1",
+    ratioStepPercent: "0.01",
     optimizeHead: false,
     optimizeFireCrystal: false,
     preparation: {
@@ -492,48 +509,18 @@ export function createOptimizationRequest(
     };
   }
 
-  const head = form.optimizeHead
-    ? Object.fromEntries(TROOP_TYPES.map((troopType) => [
-        troopType,
-        {
-          mode: "optimize" as const,
-          candidateHeroIds: getHeadHeroesByTroopType(troopType)
-            .filter((hero) => hero.optimizableForBear !== false)
-            .map((hero) => hero.id),
-          includeEmpty: true,
-        },
-      ]))
-    : Object.fromEntries(TROOP_TYPES.map((troopType) => [
-        troopType,
-        form.headHeroIds[troopType]
-          ? { mode: "fixed" as const, fixedHeroId: form.headHeroIds[troopType] as HeadHeroId }
-          : { mode: "fixed" as const },
-      ]));
-  const fireCrystal: FullBattleSetupOptimizationOptions["fireCrystal"] = form.optimizeFireCrystal
-    ? {
-        mode: "optimize",
-        includeEmpty: true,
-        allowedConfigurations: fireCrystalSkillOptions.map((skill) => ({
-          id: `ui.fire.${skill.id}`,
-          settings: { skillIds: [skill.id] },
-        })),
-      }
-    : {
-        mode: "fixed",
-        configuration: {
-          id: "ui.fire.fixed",
-          settings: { skillIds: built.input.fireCrystal?.skillIds ?? [] },
-        },
-      };
-
   return {
     kind,
-    input: { totalTroopCount, troopSettings, preparation: built.input.preparation },
+    input: {
+      totalTroopCount,
+      troopSettings,
+      preparation: built.input.preparation,
+      ...(built.input.headFormation ? { headFormation: built.input.headFormation } : {}),
+      ...(built.input.fireCrystal ? { fireCrystal: built.input.fireCrystal } : {}),
+    },
     options: {
-      ratio: { mode: "optimize", stepPercent: ratioStepPercent },
-      body: { mode: "optimize", bodyCount: 4 },
-      head,
-      fireCrystal,
+      ratioStepPercent,
+      bodyCount: 4,
       topK,
     },
   };
@@ -546,7 +533,7 @@ export function runOptimizationCore(request: UiOptimizationCoreRequest): UiOptim
   if (request.kind === "ratio") {
     return { kind: request.kind, result: optimizeTroopRatio(request.input, request.options) };
   }
-  return { kind: request.kind, result: optimizeFullBattleSetup(request.input, request.options) };
+  return { kind: request.kind, result: optimizeBattleSetup(request.input, request.options) };
 }
 
 export function toUiOptimizationResult(
@@ -574,7 +561,7 @@ export function toUiOptimizationResult(
         improvementRatio: candidate.improvementRatio,
         troopCounts: currentCounts,
         ratios: currentRatios,
-        bodyHeroIds: candidate.heroIds,
+        bodyHeroIds: candidate.bodySkillOptionIds,
         headFormation: currentHead,
         fireCrystalSkillIds: currentFire,
       })),
@@ -608,33 +595,31 @@ export function toUiOptimizationResult(
     kind: core.kind,
     title: "完整联合优化",
     candidateCount: core.result.cartesianCandidateCount,
-    evaluatedCount: core.result.evaluatedCandidateCount,
+    evaluatedCount: core.result.evaluatedSetupCount,
     cacheHits: core.result.stats.cacheHits,
     cacheMisses: core.result.stats.cacheMisses,
     elapsedMs: core.result.stats.elapsedMs,
-    performanceWarning: core.result.performanceWarning,
+    performanceWarning: null,
     rows: core.result.results.map((candidate) => createOptimizationRow({
       rank: candidate.rank,
       score: candidate.score,
       improvementRatio: candidate.improvementRatio,
       troopCounts: candidate.troopCounts,
       ratios: candidate.ratios,
-      bodyHeroIds: candidate.bodyHeroIds,
-      headFormation: candidate.headFormation,
-      fireCrystalSkillIds: candidate.fireCrystalConfiguration.settings.skillIds,
+      bodyHeroIds: candidate.heroIds,
+      headFormation: currentHead,
+      fireCrystalSkillIds: currentFire,
     })),
   };
 }
 
 export function estimateFullCandidateCount(form: CalculatorFormState): number {
   const step = readFiniteNumber(form.ratioStepPercent, "比例步长");
-  const ratioCount = generateTroopRatioGrid(step).length;
-  const bodyCount = combinationsWithReplacement(getSupportedBodyHeroes(), 4).length;
-  const headCount = form.optimizeHead
-    ? TROOP_TYPES.reduce((product, troopType) => product * (getHeadHeroesByTroopType(troopType).length + 1), 1)
-    : 1;
-  const fireCount = form.optimizeFireCrystal ? fireCrystalSkillOptions.length + 1 : 1;
-  return ratioCount * bodyCount * headCount * fireCount;
+  const tickCount = 100 / step;
+  if (!Number.isSafeInteger(tickCount)) throw new UiInputError("比例步长必须能整除 100%。");
+  const ratioCount = ((tickCount + 1) * (tickCount + 2)) / 2;
+  const bodyCount = combinationsWithReplacementLimited(bodySkillOptions, 4, 2).length;
+  return ratioCount * bodyCount;
 }
 
 export function applyOptimizationRow(
@@ -699,27 +684,14 @@ function buildBattleInput(form: CalculatorFormState): {
     };
   });
 
-  const bodyHeroIds: BodyHeroId[] = [];
+  const selectedBodyOptionIds: BodySkillOptionId[] = [];
   const localSkippedSkills: UiSkillNotice[] = [];
-  for (const rawHeroId of form.bodyHeroIds.filter(Boolean)) {
-    const hero = getHeroById(rawHeroId as HeroId);
-    if (hero === undefined) throw new UiInputError(`找不到车身英雄：${rawHeroId}。`);
-    if (hero.status === "supported") {
-      bodyHeroIds.push(hero.id);
-    } else {
-      const definition = hero.bodySkillDefinition;
-      localSkippedSkills.push({
-        source: "body",
-        ownerId: hero.id,
-        ownerName: hero.name,
-        skillName: definition.name,
-        status: definition.status,
-        reason: definition.status === "pending"
-          ? definition.pendingReason
-          : definition.unsupportedReason,
-      });
-    }
+  for (const rawOptionId of form.bodyHeroIds.filter(Boolean)) {
+    const option = getBodySkillOptionById(rawOptionId as BodySkillOptionId);
+    if (option === undefined) throw new UiInputError(`找不到车身技能：${rawOptionId}。`);
+    selectedBodyOptionIds.push(option.id);
   }
+  const bodyHeroIds = [...resolveBodySkillOptionHeroIds(selectedBodyOptionIds)];
 
   const headFormation = formToHeadFormation(form);
   const fireCrystalSkillIds = form.fireCrystalSkillIds.map((skillId) => {
@@ -836,8 +808,15 @@ function createOptimizationRow(input: {
   readonly headFormation: HeadFormation;
   readonly fireCrystalSkillIds: readonly string[];
 }): UiOptimizationRow {
-  const bodyHeroNames = input.bodyHeroIds.map((heroId) =>
-    getHeroById(heroId as HeroId)?.name ?? heroId,
+  const normalizedBodyOptionIds = input.bodyHeroIds.map((optionOrHeroId) => {
+    const direct = getBodySkillOptionById(optionOrHeroId as BodySkillOptionId);
+    if (direct !== undefined) return direct.id;
+    return getBodySkillOptionForHeroId(optionOrHeroId as BodyHeroId)?.id ?? optionOrHeroId;
+  });
+  const bodyHeroNames = normalizedBodyOptionIds.map((optionOrHeroId) =>
+    getBodySkillOptionById(optionOrHeroId as BodySkillOptionId)?.label
+      ?? getHeroById(optionOrHeroId as HeroId)?.name
+      ?? optionOrHeroId,
   );
   const headHeroIds = [
     input.headFormation.shieldHeroId,
@@ -850,7 +829,7 @@ function createOptimizationRow(input: {
     improvementRatio: input.improvementRatio,
     troopCounts: input.troopCounts,
     ratios: input.ratios,
-    bodyHeroIds: input.bodyHeroIds,
+    bodyHeroIds: normalizedBodyOptionIds,
     bodyHeroNames,
     headFormation: input.headFormation,
     headHeroNames: headHeroIds.map((heroId) => getHeadHeroById(heroId)?.name ?? heroId),

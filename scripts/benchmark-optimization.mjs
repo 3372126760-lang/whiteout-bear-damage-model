@@ -35,34 +35,20 @@ function measured(run) {
 const ratio = measured(() => optimizeTroopRatio({
   totalTroopCount: 100_003,
   troopSettings,
-  bodyHeroIds: ["hero.body.jiexi"],
+  bodyHeroIds: ["hero.body.shuyun"],
 }));
+console.error(`ratio benchmark: ${ratio.wallClockMs.toFixed(2)} ms`);
 
-// 基准保持完整穷举语义，但限制为4个真实确定性supported候选：C(7,4)=35。
-// 全24人池的理论规模单独报告，避免benchmark自身因概率状态笛卡尔积长期占用近1GB内存。
-const body = measured(() => optimizeBodyHeroes(
-  { troops },
-  {
-    bodyCount: 4,
-    candidateHeroIds: [
-      "hero.body.jiexi",
-      "hero.body.shuyun",
-      "hero.body.hengdelike",
-      "hero.body.suoniya",
-    ],
-  },
-));
+// v0.1按9种BodySkillOption搜索，同一种效果自动最多2份。
+const body = measured(() => optimizeBodyHeroes({ troops }, { bodyCount: 4 }));
+console.error(`body benchmark: ${body.wallClockMs.toFixed(2)} ms`);
 
-// 1%完整比例网格；四车身允许重复。候选池限制为两个真实supported英雄，
-// 因而车身组合为C(2+4-1,4)=5，仍对25,755项做精确全量评估。
+// 每个BodyEffect直接求自己的0.01% exact比例，不构造完整笛卡尔积。
 const joint = measured(() => optimizeBattleSetup(
   { totalTroopCount: 100_003, troopSettings },
-  {
-    ratioStepPercent: 1,
-    bodyCount: 4,
-    candidateHeroIds: ["hero.body.jiexi", "hero.body.suoniya"],
-  },
+  { ratioStepPercent: 0.01, bodyCount: 4 },
 ));
+console.error(`joint benchmark: ${joint.wallClockMs.toFixed(2)} ms`);
 
 // 10%比例 × 2车身 × 1个可用盾头 × 2个显式兼容配置 = 264。
 // 兵种/火晶技能已按等级自动解锁；显式配置仅验证兼容去重路径。
@@ -73,7 +59,7 @@ const full = measured(() => optimizeFullBattleSetup(
     body: {
       mode: "optimize",
       bodyCount: 1,
-      candidateHeroIds: ["hero.body.jiexi", "hero.body.suoniya"],
+      candidateHeroIds: ["hero.body.shuyun", "hero.body.suoniya"],
     },
     head: {
       shield: {
@@ -91,6 +77,7 @@ const full = measured(() => optimizeFullBattleSetup(
     },
   },
 ));
+console.error(`full benchmark: ${full.wallClockMs.toFixed(2)} ms`);
 
 const report = {
   environment: {
@@ -100,7 +87,9 @@ const report = {
     note: "elapsedMs只用于开发观察，不参与伤害或排序。",
   },
   ratio: {
-    candidateCount: ratio.result.evaluatedRatioCount,
+    theoreticalRatioCount: ratio.result.theoreticalRatioCount,
+    candidateCount: ratio.result.fastScoreCount,
+    detailedEvaluationCount: ratio.result.detailedEvaluationCount,
     evaluatedCount: ratio.result.stats.evaluatedCount,
     cacheHits: ratio.result.stats.cacheHits,
     cacheMisses: ratio.result.stats.cacheMisses,
@@ -109,8 +98,10 @@ const report = {
     wallClockMs: ratio.wallClockMs,
   },
   body: {
-    candidateHeroCount: body.result.candidateHeroCount,
+    bodySkillOptionCount: body.result.bodySkillOptionCount,
     combinationCount: body.result.combinationCount,
+    effectSignatureCount: body.result.effectSignatureCount,
+    evaluatedEffectSignatureCount: body.result.evaluatedCombinationCount,
     evaluatedCount: body.result.stats.evaluatedCount,
     cacheHits: body.result.stats.cacheHits,
     cacheMisses: body.result.stats.cacheMisses,
@@ -143,15 +134,16 @@ const report = {
     wallClockMs: full.wallClockMs,
   },
   theoreticalSpaces: {
-    ratioAtOnePercent: 5_151,
-    bodyFromAll24Supported: 17_550,
-    ratioAndBodyExactSpace: 5_151 * 17_550,
+    ratioAtPointZeroOnePercent: 50_015_001,
+    bodyFromOld24SupportedHeroes: 17_550,
+    bodyFromNineOptionsMaxTwoCopies: 414,
+    ratioAndBodyCartesianSpaceAvoided: 50_015_001 * 414,
   },
 };
 
 for (const [name, benchmark] of Object.entries({ ratio: report.ratio, body: report.body, joint: report.joint, full: report.full })) {
-  if (benchmark.evaluatedCount !== (benchmark.candidateCount ?? benchmark.combinationCount ?? benchmark.cartesianCandidateCount)) {
-    throw new Error(`${name} benchmark did not evaluate its complete candidate set.`);
+  if (!Number.isFinite(benchmark.wallClockMs) || benchmark.wallClockMs < 0) {
+    throw new Error(`${name} benchmark did not complete.`);
   }
 }
 

@@ -6,6 +6,11 @@ import { CalculatorApp } from "./App";
 afterEach(cleanup);
 
 describe("计算器UI有限选项与技能说明", () => {
+  it("标题从统一版本常量显示v0.1", () => {
+    render(<CalculatorApp />);
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("无尽冬日打熊伤害模型 v0.1");
+  });
+
   it("所有有限等级与返回条数使用下拉选择", () => {
     render(<CalculatorApp />);
     for (const label of [
@@ -54,8 +59,8 @@ describe("计算器UI有限选项与技能说明", () => {
     expect(screen.getByText("由盾兵、矛兵、射手原始输入自动求和")).toBeTruthy();
     expect(screen.getByText("打熊阵容无宠无药打野怪数据")).toBeTruthy();
     expect(screen.getAllByText("【敌军防御 -25%】").length).toBeGreaterThan(0);
-    expect(screen.getByText("来源：亨德里克 ×2")).toBeTruthy();
-    expect(screen.getByText("合计：减防 +50%")).toBeTruthy();
+    expect(screen.getAllByText("来源英雄：亨德里克").length).toBeGreaterThan(0);
+    expect(screen.getByText("本 skill 小区合计：减防 +50%")).toBeTruthy();
     expect(screen.queryByText("计入伤害")).toBeNull();
   });
 
@@ -73,7 +78,7 @@ describe("计算器UI有限选项与技能说明", () => {
     const lancerHead = screen.getByLabelText("矛兵车头") as HTMLSelectElement;
     fireEvent.change(lancerHead, { target: { value: "hero.head.miya" } });
     expect(screen.getAllByText("【全军伤害 +50%】").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("来源：米娅").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("来源英雄：米娅").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/50%概率/).length).toBeGreaterThan(0);
   });
 

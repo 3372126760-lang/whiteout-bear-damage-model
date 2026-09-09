@@ -24,7 +24,6 @@ import {
   optimizeTroopRatio,
 } from "./troop-ratio";
 
-const jiexi = "hero.body.jiexi" as const;
 const shuyun = "hero.body.shuyun" as const;
 const suoniya = "hero.body.suoniya" as const;
 
@@ -107,15 +106,15 @@ describe("第二十二步统一十回合期望评分", () => {
   it("三个优化器默认均使用expectedTenRoundTotalDamage", () => {
     const body = optimizeBodyHeroes(
       { troops: fixedTroops },
-      { bodyCount: 1, topK: 1, candidateHeroIds: [jiexi] },
+      { bodyCount: 1, topK: 1, candidateHeroIds: [shuyun] },
     );
     const ratio = optimizeTroopRatio(
-      { totalTroopCount: 60_000, troopSettings, bodyHeroIds: [jiexi] },
+      { totalTroopCount: 60_000, troopSettings, bodyHeroIds: [shuyun] },
       { stepPercent: 100, topK: 1 },
     );
     const joint = optimizeBattleSetup(
       { totalTroopCount: 60_000, troopSettings },
-      { ratioStepPercent: 100, bodyCount: 1, topK: 1, candidateHeroIds: [jiexi] },
+      { ratioStepPercent: 100, bodyCount: 1, topK: 1, candidateHeroIds: [shuyun] },
     );
 
     for (const result of [body, ratio, joint]) {
@@ -131,7 +130,7 @@ describe("第二十二步统一十回合期望评分", () => {
     const options = {
       bodyCount: 2,
       topK: 6,
-      candidateHeroIds: [jiexi, shuyun],
+      candidateHeroIds: [shuyun, suoniya],
     } as const;
     const legacy = optimizeBodyHeroes(input, { ...options, scoringMode: "legacy" });
     const expected = optimizeBodyHeroes(input, {
@@ -186,7 +185,7 @@ describe("第二十二步统一十回合期望评分", () => {
     const input = {
       totalTroopCount: 20_000,
       troopSettings,
-      bodyHeroIds: [jiexi],
+      bodyHeroIds: [shuyun],
     } as const;
     const result = optimizeTroopRatio(input, { stepPercent: 50, topK: 6 });
     const direct = generateTroopRatioGrid(50).map((ratios) => {
@@ -197,7 +196,7 @@ describe("第二十二步统一十回合期望评分", () => {
           troopCount: counts[troopType],
           ...troopSettings[troopType],
         })),
-        bodyHeroIds: [jiexi],
+        bodyHeroIds: [shuyun],
       });
       return { ratios, score: expected.expectedTotalDamage };
     }).sort(compareRatioScore);
@@ -212,11 +211,11 @@ describe("第二十二步统一十回合期望评分", () => {
       ratioStepPercent: 50,
       bodyCount: 1,
       topK: 12,
-      candidateHeroIds: [jiexi, shuyun],
+      candidateHeroIds: [shuyun, suoniya],
     });
     const direct = generateTroopRatioGrid(50).flatMap((ratios) => {
       const counts = allocateTroopsByRatio(input.totalTroopCount, ratios);
-      return combinationsWithReplacement([jiexi, shuyun], 1).map((heroIds) => ({
+      return combinationsWithReplacement([shuyun, suoniya], 1).map((heroIds) => ({
         ratios,
         heroIds,
         score: calculateTenRoundExpectedDamage({
@@ -257,11 +256,11 @@ describe("第二十二步统一十回合期望评分", () => {
   it("缓存key规范化无序body组合但保留完整战斗输入", () => {
     const left = {
       troops: fixedTroops,
-      bodyHeroIds: [jiexi, shuyun],
+      bodyHeroIds: [shuyun, suoniya],
     };
     const right = {
       troops: fixedTroops,
-      bodyHeroIds: [shuyun, jiexi],
+      bodyHeroIds: [suoniya, shuyun],
     };
     const leftKey = createBattleEvaluationKey(
       left,

@@ -70,7 +70,7 @@ function troop(
 
 describe("车身英雄配置接入", () => {
   it("完整数据库中的 supported 英雄均可作为纯配置接入", () => {
-    expect(Object.keys(bodyHeroes)).toHaveLength(28);
+    expect(Object.keys(bodyHeroes)).toHaveLength(29);
 
     for (const hero of Object.values(bodyHeroes)) {
       expect(hero.role).toBe("body");

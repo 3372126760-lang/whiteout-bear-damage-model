@@ -61,6 +61,8 @@ export type {
   BodyOptimizationOptions,
   BodyOptimizationResult,
 } from "./domain/bodyOptimization";
+export type { AggregatedBodyEffect, BodySkillOption, BodySkillOptionId } from "./domain/bodySkillOption";
+export { APP_TITLE, APP_VERSION } from "./app/version";
 export type {
   BattleSetupOptimizationCandidateResult,
   BattleSetupOptimizationInput,
@@ -236,6 +238,7 @@ export { troopLevels } from "./game-data/troops/troopLevels";
 export { troopTypes } from "./game-data/troops/troopTypes";
 export { bodyHeroCatalog } from "./game-data/heroes/bodyHeroCatalog";
 export { bodyHeroes } from "./game-data/heroes/bodyHeroes";
+export * from "./game-data/body-skills";
 export { headHeroCatalog } from "./game-data/heroes/headHeroCatalog";
 export { headHeroes } from "./game-data/heroes/headHeroes";
 export {

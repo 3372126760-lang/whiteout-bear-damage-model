@@ -34,11 +34,23 @@ function requireFirstEffect(heroId: BodyHeroId): SkillEffect {
 }
 
 describe("完整车身英雄数据库", () => {
-  it("录入28个英雄，并按最新规则分为24 supported / 4 pending / 0 unsupported", () => {
-    expect(getAllBodyHeroes()).toHaveLength(28);
-    expect(getSupportedBodyHeroes()).toHaveLength(24);
+  it("录入29个英雄，并按最新规则分为25 supported / 4 pending / 0 unsupported", () => {
+    expect(getAllBodyHeroes()).toHaveLength(29);
+    expect(getSupportedBodyHeroes()).toHaveLength(25);
     expect(getPendingBodyHeroes()).toHaveLength(4);
     expect(getUnsupportedBodyHeroes()).toHaveLength(0);
+  });
+
+  it("玲奈常驻提升30%普通攻击且不属于额外伤害", () => {
+    const hero = requireHero("hero.body.lingnai");
+    expect(hero.status).toBe("supported");
+    expect(hero.skill?.trigger).toEqual({ type: "always" });
+    expect(requireFirstEffect(hero.id)).toMatchObject({
+      type: "normalAttackDamageIncrease",
+      value: 0.3,
+      targetTroop: "all",
+    });
+    expect(requireFirstEffect(hero.id).type).not.toBe("extraDamage");
   });
 
   it("所有 hero id 唯一且配置字段完整", () => {

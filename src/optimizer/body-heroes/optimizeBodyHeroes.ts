@@ -1,4 +1,5 @@
 import type { TroopMultiplierBreakdown } from "../../domain/battleDamage";
+import type { BodySkillOption } from "../../domain/bodySkillOption";
 import type {
   BodyOptimizationCandidateResult,
   BodyOptimizationInput,
@@ -8,19 +9,23 @@ import type {
 import type { BodyHeroId, SupportedHeroDefinition } from "../../domain/hero";
 import type { OptimizerScoringMode } from "../../domain/optimizerScoring";
 import type { TroopType } from "../../domain/troop";
-import { combinationsWithReplacement } from "../combinationsWithReplacement";
+import { combinationsWithReplacementLimited } from "../combinationsWithReplacement";
+import { aggregateBodyEffect } from "../../game-data/body-skills";
+import { getHeroById } from "../../game-data/heroes/bodyHeroQueries";
 import {
   createOptimizerBattleEvaluator,
   type OptimizerBattleEvaluation,
   type OptimizerBattleEvaluatorDependencies,
 } from "../evaluation/evaluateBattle";
 import { InvalidBodyCountError, InvalidTopKError } from "./errors";
-import { resolveSupportedBodyHeroCandidates } from "./resolveSupportedBodyHeroCandidates";
+import { resolveBodySkillOptionCandidates } from "./resolveBodySkillOptionCandidates";
+import { optimisticBodyUpperBound } from "./optimisticBodyBound";
 
 const DEFAULT_BODY_COUNT = 4;
 const DEFAULT_TOP_K = 10;
 const DEFAULT_SCORING_MODE: OptimizerScoringMode = "tenRoundExpected";
 const MAX_BODY_COUNT = 4;
+export const OPTIMIZER_MAX_COPIES_PER_BODY_SKILL = 2;
 const TROOP_TYPES: readonly TroopType[] = ["shield", "lancer", "marksman"];
 
 export interface BodyHeroOptimizerDependencies
@@ -46,10 +51,14 @@ export function createBodyHeroOptimizer(
     const scoringMode = options.scoringMode ?? DEFAULT_SCORING_MODE;
     validateOptions(bodyCount, topK);
 
-    const candidateHeroes = resolveSupportedBodyHeroCandidates(
+    const candidateOptions = resolveBodySkillOptionCandidates(
       options.candidateHeroIds,
     );
-    const combinations = combinationsWithReplacement(candidateHeroes, bodyCount);
+    const combinations = combinationsWithReplacementLimited(
+      candidateOptions,
+      bodyCount,
+      OPTIMIZER_MAX_COPIES_PER_BODY_SKILL,
+    );
     const evaluator = createOptimizerBattleEvaluator(dependencies);
     const { enemyBaseDefense, ...baseInput } = input;
     const evaluate = (bodyHeroIds: readonly BodyHeroId[]) =>
@@ -63,17 +72,49 @@ export function createBodyHeroOptimizer(
         },
       );
     const noBodyEvaluation = evaluate([]);
-    const evaluated = combinations.map((heroes) => {
-      const heroIds = heroes.map((hero) => hero.id as BodyHeroId);
-      return createCandidateResult(
+    const evaluationBySignature = new Map<string, OptimizerBattleEvaluation>();
+    const baselineTroopDamage = getExpectedTroopDamage(noBodyEvaluation);
+    const aggregatedEffects = combinations
+      .map(aggregateBodyEffect)
+      .map((bodyEffect) => ({
+        bodyEffect,
+        upperBound: optimisticBodyUpperBound(bodyEffect.skills, baselineTroopDamage),
+      }))
+      .sort((left, right) => right.upperBound - left.upperBound || left.bodyEffect.signature.localeCompare(right.bodyEffect.signature));
+    const effectSignatureCount = new Set(
+      aggregatedEffects.map(({ bodyEffect }) => bodyEffect.signature),
+    ).size;
+    const evaluated: Array<Omit<BodyOptimizationCandidateResult, "rank"> & { readonly rank: 0 }> = [];
+    for (const { bodyEffect, upperBound } of aggregatedEffects) {
+      if (
+        evaluated.length >= topK &&
+        upperBound < evaluated[evaluated.length - 1]!.score - Math.max(1, Math.abs(upperBound)) * 1e-12
+      ) break;
+      const bodySkillOptions = bodyEffect.options;
+      const heroIds = bodyEffect.representativeHeroIds;
+      const heroes = heroIds.map((heroId) => {
+        const hero = getHeroById(heroId);
+        if (hero === undefined || hero.status !== "supported") {
+          throw new Error(`车身代表英雄不可用：${heroId}。`);
+        }
+        return hero;
+      });
+      const signature = bodyEffect.signature;
+      let evaluation = evaluationBySignature.get(signature);
+      if (evaluation === undefined) {
+        evaluation = evaluate(heroIds);
+        evaluationBySignature.set(signature, evaluation);
+      }
+      const candidate = createCandidateResult(
         heroes,
         heroIds,
-        evaluate(heroIds),
+        bodySkillOptions,
+        evaluation,
         noBodyEvaluation.score,
       );
-    });
+      insertCandidate(evaluated, candidate, topK);
+    }
 
-    evaluated.sort(compareCandidates);
     const results = evaluated.slice(0, topK).map((candidate, index) => ({
       ...candidate,
       rank: index + 1,
@@ -89,16 +130,18 @@ export function createBodyHeroOptimizer(
         scoringMode === "tenRoundExpected"
           ? "expectedTenRoundTotalDamage"
           : "legacySingleRoundDamage",
-      candidateHeroCount: candidateHeroes.length,
+      candidateHeroCount: candidateOptions.length,
+      bodySkillOptionCount: candidateOptions.length,
+      effectSignatureCount,
       combinationCount: combinations.length,
-      evaluatedCombinationCount: evaluated.length,
+      evaluatedCombinationCount: evaluationBySignature.size,
       noBodyDamage: noBodyEvaluation.singleRoundResult.finalDamage,
       noBodyScore: noBodyEvaluation.score,
       noBodyExpectedTenRoundDamage:
         noBodyEvaluation.expectedTenRoundDamage,
       stats: {
         candidateCount: combinations.length,
-        evaluatedCount: evaluated.length,
+        evaluatedCount: evaluationBySignature.size,
         cacheHits: cache.cacheHits,
         cacheMisses: cache.cacheMisses,
         probabilityStateCount: evaluator.probabilityStateCount(),
@@ -106,6 +149,33 @@ export function createBodyHeroOptimizer(
       },
       results,
     };
+  };
+}
+
+function insertCandidate(
+  candidates: Array<Omit<BodyOptimizationCandidateResult, "rank"> & { readonly rank: 0 }>,
+  candidate: Omit<BodyOptimizationCandidateResult, "rank"> & { readonly rank: 0 },
+  topK: number,
+): void {
+  let low = 0;
+  let high = candidates.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (compareCandidates(candidate, candidates[middle]!) < 0) high = middle;
+    else low = middle + 1;
+  }
+  candidates.splice(low, 0, candidate);
+  if (candidates.length > topK) candidates.pop();
+}
+
+function getExpectedTroopDamage(
+  evaluation: OptimizerBattleEvaluation,
+): Readonly<Record<TroopType, number>> {
+  if (evaluation.expectedResult !== undefined) return evaluation.expectedResult.expectedDamageByTroop;
+  return {
+    shield: evaluation.deterministicTenRoundResult.rounds.reduce((sum, round) => sum + round.shieldDamage, 0),
+    lancer: evaluation.deterministicTenRoundResult.rounds.reduce((sum, round) => sum + round.lancerDamage, 0),
+    marksman: evaluation.deterministicTenRoundResult.rounds.reduce((sum, round) => sum + round.marksmanDamage, 0),
   };
 }
 
@@ -125,6 +195,7 @@ function validateOptions(bodyCount: number, topK: number): void {
 function createCandidateResult(
   heroes: readonly SupportedHeroDefinition[],
   heroIds: readonly BodyHeroId[],
+  bodySkillOptions: readonly BodySkillOption[],
   evaluation: OptimizerBattleEvaluation,
   baselineScore: number,
 ): Omit<BodyOptimizationCandidateResult, "rank"> & { readonly rank: 0 } {
@@ -158,6 +229,8 @@ function createCandidateResult(
     heroes,
     selectedBodyHeroes: heroes,
     heroIds,
+    bodySkillOptions,
+    bodySkillOptionIds: bodySkillOptions.map((option) => option.id),
     totalDamage: evaluation.singleRoundResult.finalDamage,
     singleRoundDamage: evaluation.singleRoundResult.finalDamage,
     score: evaluation.score,
@@ -183,5 +256,5 @@ function compareCandidates(
 ): number {
   const scoreOrder = right.score - left.score;
   if (scoreOrder !== 0) return scoreOrder;
-  return left.heroIds.join("|").localeCompare(right.heroIds.join("|"));
+  return left.bodySkillOptionIds.join("|").localeCompare(right.bodySkillOptionIds.join("|"));
 }

@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
+import { APP_TITLE } from "../app/version";
 import {
-  applyOptimizationRow, bodyHeroOptions, calculateDisplayedTotalTroops,
+  applyOptimizationRow, bodySkillOptions, calculateDisplayedTotalTroops,
   calculateUiDamage, createDefaultFormState, createOptimizationRequest,
   bearSlayerLevelOptions, exclusiveWeaponLevelOptions, fireCrystalSkillOptions,
-  formatBodyHeroOptionLabel, formatHeadHeroOptionLabel, formatRatioPercent,
+  formatBodySkillOptionLabel, formatHeadHeroOptionLabel, formatRatioPercent,
   getSelectedHeroSkillDetails, headHeroOptions, hunterHeartLevelOptions,
   knownTroopLevelOptions, petBuffLevelOptions,
   petCapacityLevelOptions, runOptimizationCore, topKOptions,
@@ -46,7 +47,7 @@ export function CalculatorApp() {
   };
 
   return <div className="app-shell">
-    <header><p className="eyebrow">BEAR LAB / UNIFIED RULESET</p><h1>无尽冬日打熊伤害模型</h1><p>10 回合精确期望伤害 · 数据驱动技能 · 可解释优化</p></header>
+    <header><p className="eyebrow">BEAR LAB / UNIFIED RULESET</p><h1>{APP_TITLE}</h1><p>10 回合精确期望伤害 · 数据驱动技能 · 可解释优化</p></header>
     {error && <div role="alert" className="alert error">{error}</div>}
     <main>
       <section className="panel inputs">
@@ -71,13 +72,13 @@ export function CalculatorApp() {
 
         <h3>车头英雄</h3><div className="three-col">{TROOP_TYPES.map((type) => <label key={type}>{TROOP_LABELS[type]}车头<select value={form.headHeroIds[type]} onChange={(event) => setForm((current) => ({ ...current, headHeroIds: { ...current.headHeroIds, [type]: event.target.value } }))}><option value="">不选择</option>{headHeroOptions.filter((hero) => hero.troopType === type).map((hero) => <option value={hero.id} key={hero.id}>{formatHeadHeroOptionLabel(hero)}</option>)}</select></label>)}</div>
         <div className="three-col">{TROOP_TYPES.map((type) => <label key={type}>{TROOP_LABELS[type]}车头专武技能等级<LevelSelect value={form.preparation.weaponLevels[type]} options={exclusiveWeaponLevelOptions} onChange={(value) => setForm((current) => ({ ...current, preparation: { ...current.preparation, weaponLevels: { ...current.preparation.weaponLevels, [type]: value } } }))} /></label>)}</div>
-        <h3>四车身（允许重复）</h3><div className="two-col">{form.bodyHeroIds.map((id, index) => <label key={index}>车身 {index + 1}<select value={id} onChange={(event) => setForm((current) => { const ids = [...current.bodyHeroIds]; ids[index] = event.target.value; return { ...current, bodyHeroIds: ids }; })}><option value="">空槽</option>{bodyHeroOptions.map((hero) => <option value={hero.id} key={hero.id}>{formatBodyHeroOptionLabel(hero)}</option>)}</select></label>)}</div>
-        {selectedHeroSkillDetails.length > 0 && <div className="skill-detail-panel"><h3>当前技能效果</h3>{selectedHeroSkillDetails.map((detail, index) => <div className={`skill-detail ${detail.status}`} key={`${detail.ownerId}.${detail.skillName}.${index}`}><strong>【{detail.skillName}】</strong>{detail.status !== "applied" && <span>{detail.status === "pending" ? "待确认" : detail.status === "notApplicable" ? "不影响对熊输出" : "资料说明"}</span>}{detail.sourceSummary && <p>来源：{detail.sourceSummary}</p>}{detail.summary && <p>{detail.summary}</p>}{detail.totalSummary && <p>合计：{detail.totalSummary}</p>}{detail.reason && <small>暂不计入原因：{detail.reason}</small>}</div>)}</div>}
+        <h3>四车身（允许重复）</h3><div className="two-col">{form.bodyHeroIds.map((id, index) => <label key={index}>车身 {index + 1}<select value={id} onChange={(event) => setForm((current) => { const ids = [...current.bodyHeroIds]; ids[index] = event.target.value; return { ...current, bodyHeroIds: ids }; })}><option value="">不选择</option>{bodySkillOptions.map((option) => <option value={option.id} key={option.id}>{formatBodySkillOptionLabel(option)}</option>)}</select></label>)}</div>
+        {selectedHeroSkillDetails.length > 0 && <div className="skill-detail-panel"><h3>当前技能效果</h3>{selectedHeroSkillDetails.map((detail, index) => <div className={`skill-detail ${detail.status}`} key={`${detail.ownerId}.${detail.skillName}.${index}`}><strong>【{detail.skillName}】</strong>{detail.status !== "applied" && <span>{detail.status === "pending" ? "待确认" : detail.status === "notApplicable" ? "不影响对熊输出" : "资料说明"}</span>}{detail.sourceSummary && <p>来源英雄：{detail.sourceSummary}</p>}{detail.summary && <p>{detail.summary}</p>}{detail.totalSummary && <p>本 skill 小区合计：{detail.totalSummary}</p>}{detail.reason && <small>暂不计入原因：{detail.reason}</small>}</div>)}</div>}
         <details className="pending-catalog"><summary>查看当前待确认技能清单（{visiblePendingSkillDetails.length}项）</summary>{visiblePendingSkillDetails.map((detail) => <p key={`${detail.ownerId}.${detail.skillName}`}><strong>{detail.ownerName} · {detail.skillName}</strong><small>{detail.reason}</small></p>)}</details>
         <h3>自动解锁与射手技能</h3><p>连射按 T7 解锁；燃晶火药与火焰冲击按 FC 等级自动选择；炽火凝星按设置等级生效。</p><div className="checks">{fireCrystalSkillOptions.map((skill) => <label key={skill.id}><input type="checkbox" checked={form.fireCrystalSkillIds.includes(skill.id)} onChange={(event) => setForm((current) => ({ ...current, fireCrystalSkillIds: event.target.checked ? [...current.fireCrystalSkillIds, skill.id] : current.fireCrystalSkillIds.filter((id) => id !== skill.id) }))} /><span>{skill.name}{skill.status !== "supported" && <small> 待确认：{skill.status === "pending" ? skill.pendingReason : skill.unsupportedReason}</small>}</span></label>)}</div>
 
         <button className="primary" disabled={Boolean(busy)} onClick={calculate}>{busy === "damage" ? "计算中…" : "计算 10 回合伤害"}</button>
-        <div className="optimizer"><h3>优化</h3><div className="two-col"><label>返回方案数<LevelSelect value={form.topK} options={topKOptions} onChange={(value) => setForm((current) => ({ ...current, topK: value }))} /></label><label>比例步长 %<input type="number" min="0.01" step="0.01" value={form.ratioStepPercent} onChange={(event) => setForm((current) => ({ ...current, ratioStepPercent: event.target.value }))} /></label></div><div className="button-row"><button disabled={Boolean(busy)} onClick={() => void optimize("body")}>优化四车身</button><button disabled={Boolean(busy)} onClick={() => void optimize("ratio")}>优化兵种比例</button><button disabled={Boolean(busy)} onClick={() => void optimize("full")}>完整联合优化</button></div>{busy && busy !== "damage" && <p className="warning">计算中…完整精确穷举可能需要较长时间；计算在独立线程运行，可继续查看页面。</p>}</div>
+        <div className="optimizer"><h3>优化</h3><div className="two-col"><label>返回方案数<LevelSelect value={form.topK} options={topKOptions} onChange={(value) => setForm((current) => ({ ...current, topK: value }))} /></label><label>比例步长 %<input type="number" min="0.01" step="0.01" value={form.ratioStepPercent} onChange={(event) => setForm((current) => ({ ...current, ratioStepPercent: event.target.value }))} /></label></div><div className="button-row"><button disabled={Boolean(busy)} onClick={() => void optimize("body")}>优化四车身</button><button disabled={Boolean(busy)} onClick={() => void optimize("ratio")}>优化兵种比例</button><button disabled={Boolean(busy)} onClick={() => void optimize("full")}>完整联合优化</button></div>{busy && busy !== "damage" && <p className="warning">计算中…正在运行0.01%网格的exact数学搜索；计算在独立线程运行，可继续查看页面。</p>}</div>
       </section>
 
       <section className="panel results"><h2>计算结果</h2>{!result && !optimization && <div className="empty"><strong>等待计算</strong><p>填写左侧战报和阵容后开始计算。</p></div>}

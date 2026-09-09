@@ -14,6 +14,7 @@ import { createFullBattleSetupOptimizer, optimizeFullBattleSetup } from "./optim
 
 const jiexi = "hero.body.jiexi" as const;
 const shuyun = "hero.body.shuyun" as const;
+const suoniya = "hero.body.suoniya" as const;
 
 const troopSettings = {
   shield: {
@@ -213,11 +214,11 @@ describe("第二十三步完整阵容优化器", () => {
       ratioStepPercent: 100,
       bodyCount: 1,
       topK: 6,
-      candidateHeroIds: [jiexi, shuyun],
+      candidateHeroIds: [shuyun, suoniya],
     });
     const full = optimizeFullBattleSetup(input, {
       ratio: { mode: "optimize", stepPercent: 100 },
-      body: { mode: "optimize", bodyCount: 1, candidateHeroIds: [jiexi, shuyun] },
+      body: { mode: "optimize", bodyCount: 1, candidateHeroIds: [shuyun, suoniya] },
       head: {},
       fireCrystal: { mode: "fixed" },
       topK: 6,

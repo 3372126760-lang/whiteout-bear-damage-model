@@ -45,7 +45,7 @@ export interface TroopRatioOptimizationInput {
 }
 
 export interface TroopRatioOptimizationOptions {
-  /** 百分点步长，默认 1；支持 0.5、0.2、0.1 等小数。 */
+  /** 百分点步长，默认 0.01；支持 1、0.5、0.1 等可整除100的小数。 */
   readonly stepPercent?: number;
   readonly topK?: number;
   readonly minimumRatios?: TroopRatioBounds;
@@ -73,6 +73,13 @@ export interface TroopRatioOptimizationResult {
   readonly stepPercent: number;
   readonly topK: number;
   readonly evaluatedRatioCount: number;
+  readonly optimizationMethod: "separableExact" | "naiveGrid";
+  /** 完整合法网格规模；separableExact不会逐一运行完整战斗模拟。 */
+  readonly theoreticalRatioCount: number;
+  readonly fastScoreCount: number;
+  readonly uniqueTroopCountScoreCount: number;
+  readonly detailedEvaluationCount: number;
+  readonly coefficients: Readonly<Record<TroopType, number>> | null;
   readonly scoringMode: OptimizerScoringMode;
   readonly scoreMetric: "legacySingleRoundDamage" | "expectedTenRoundTotalDamage";
   readonly elapsedMs: number;

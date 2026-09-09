@@ -236,16 +236,16 @@ describe("Stage 24 stable core audit", () => {
   it("真实技能统计稳定且剩余阻塞严格区分RULE_UNKNOWN与DATA_SOURCE_UNCERTAIN", () => {
     const support = generateSkillSupportReport();
     const blockers = generatePendingSkillBlockerReport();
-    expect(collectSkillCatalog()).toHaveLength(55);
-    expect(support.totals.skills).toEqual({ supported: 51, pending: 4, unsupported: 0 });
-    expect(support.totals.effects).toEqual({ supported: 52, pending: 0, unsupported: 0 });
+    expect(collectSkillCatalog()).toHaveLength(56);
+    expect(support.totals.skills).toEqual({ supported: 52, pending: 4, unsupported: 0 });
+    expect(support.totals.effects).toEqual({ supported: 53, pending: 0, unsupported: 0 });
     expect(blockers.engineCapability).toHaveLength(0);
     expect(blockers.gameRuleInformation).toHaveLength(0);
     expect(blockers.dataSourceUncertain).toHaveLength(4);
   });
 
   it("四个优化器在小搜索空间的top1等于直接全量评分", () => {
-    const heroIds = ["hero.body.jiexi", "hero.body.suoniya"] as const;
+    const heroIds = ["hero.body.shuyun", "hero.body.suoniya"] as const;
     const body = optimizeBodyHeroes(
       { troops: fixedTroops },
       { bodyCount: 1, candidateHeroIds: heroIds, topK: 2 },
@@ -308,7 +308,7 @@ describe("Stage 24 stable core audit", () => {
       { totalTroopCount: 20_000, troopSettings },
       {
         ratio: { mode: "optimize", stepPercent: 50 },
-        body: { mode: "optimize", bodyCount: 1, candidateHeroIds: ["hero.body.jiexi", "hero.body.jiesaier"] },
+        body: { mode: "optimize", bodyCount: 1, candidateHeroIds: ["hero.body.shuyun", "hero.body.heluonimo"] },
         head: {},
         fireCrystal: { mode: "fixed" },
         topK: 8,

@@ -7,6 +7,7 @@ import type {
 } from "./optimizerScoring";
 import type { TenRoundExpectedDamageInput } from "./tenRoundExpectedDamage";
 import type { TroopType } from "./troop";
+import type { BodySkillOption, BodySkillOptionId } from "./bodySkillOption";
 
 export type BodyOptimizationInput = Omit<
   TenRoundExpectedDamageInput,
@@ -31,6 +32,8 @@ export interface BodyOptimizationCandidateResult extends ExpectedOptimizationFie
   readonly heroes: readonly SupportedHeroDefinition[];
   readonly heroIds: readonly BodyHeroId[];
   readonly selectedBodyHeroes: readonly SupportedHeroDefinition[];
+  readonly bodySkillOptions: readonly BodySkillOption[];
+  readonly bodySkillOptionIds: readonly BodySkillOptionId[];
   /** 兼容旧API：仍表示单回合伤害；正式排名读取score。 */
   readonly totalDamage: number;
   readonly singleRoundDamage: number;
@@ -51,6 +54,8 @@ export interface BodyOptimizationResult {
   readonly bodyCount: number;
   readonly topK: number;
   readonly candidateHeroCount: number;
+  readonly bodySkillOptionCount: number;
+  readonly effectSignatureCount: number;
   readonly combinationCount: number;
   readonly evaluatedCombinationCount: number;
   readonly scoringMode: OptimizerScoringMode;

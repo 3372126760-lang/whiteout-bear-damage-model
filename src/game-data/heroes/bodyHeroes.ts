@@ -394,6 +394,20 @@ export const bodyHeroes = {
     skill: alwaysSkill("skill.body.lufusi.attack", "火焰战团（车身5级）", "attack", .25, "all"),
     notes: ["车身只取第一个远征技能：5级全军攻击+25%。"],
   }),
+  "hero.body.lingnai": supportedBodyHero({
+    id: "hero.body.lingnai",
+    name: "玲奈",
+    tier: "A",
+    generation: null,
+    skill: alwaysSkill(
+      "skill.body.lingnai.normal-attack-damage",
+      "普攻伤害提升",
+      "normalAttackDamageIncrease",
+      0.3,
+      "all",
+    ),
+    notes: ["常驻：全体部队普通攻击伤害提升30%；不放大extraDamage或技能伤害部分。"],
+  }),
   "hero.body.fuluola": pendingBodyHero({
     id: "hero.body.fuluola",
     name: "弗洛拉",

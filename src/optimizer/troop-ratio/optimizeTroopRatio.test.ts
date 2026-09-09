@@ -112,9 +112,12 @@ describe("optimizeTroopRatio", () => {
     defaultResult = optimizeTroopRatio(testInput);
   });
 
-  it("默认评估 5151 个 1% 候选并最多返回前 10 名", () => {
-    expect(defaultResult.stepPercent).toBe(1);
-    expect(defaultResult.evaluatedRatioCount).toBe(5_151);
+  it("默认以0.01% exact搜索约5000万理论网格且只详细计算Top10", () => {
+    expect(defaultResult.stepPercent).toBe(0.01);
+    expect(defaultResult.optimizationMethod).toBe("separableExact");
+    expect(defaultResult.theoreticalRatioCount).toBe(50_015_001);
+    expect(defaultResult.evaluatedRatioCount).toBeLessThan(50_015_001);
+    expect(defaultResult.detailedEvaluationCount).toBeLessThan(20);
     expect(defaultResult.topK).toBe(10);
     expect(defaultResult.results).toHaveLength(10);
     expect(defaultResult.results.map((result) => result.rank)).toEqual([

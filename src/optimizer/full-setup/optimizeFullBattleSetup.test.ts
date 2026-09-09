@@ -487,4 +487,30 @@ describe("第二十三步完整阵容优化器", () => {
     expect(appliedNames).toEqual(expect.arrayContaining(["战前宣言（5级）", "剑术指导（5级）", "精湛剑术（5级）"]));
     for (const name of ["三断斩", "剑气", "孤傲"]) expect(appliedNames).not.toContain(name);
   });
+
+  it("弗林特作为正式盾兵车头候选进入完整10回合优化评分", () => {
+    const result = optimizeFullBattleSetup(input, {
+      ratio: { mode: "fixed", ratios: { shield: 100, lancer: 0, marksman: 0 } },
+      body: { mode: "fixed", heroIds: [] },
+      head: {
+        shield: {
+          mode: "optimize",
+          candidateHeroIds: ["hero.head.fulinte"],
+          includeEmpty: false,
+        },
+      },
+      fireCrystal: { mode: "fixed" },
+      topK: 1,
+    });
+    const best = result.results[0];
+    expect(best).toBeDefined();
+    if (!best) {
+      throw new Error("expected Flint to produce one optimized setup");
+    }
+    expect(best.headFormation.shieldHeroId).toBe("hero.head.fulinte");
+    expect(best.expectedDamageByRound).toHaveLength(10);
+    expect((best.battleResult.appliedSkills ?? []).map((skill) => skill.skillName)).toEqual(
+      expect.arrayContaining(["野火燎原（5级）", "燃烧意志（5级）", "无尽烈火（5级）"]),
+    );
+  });
 });

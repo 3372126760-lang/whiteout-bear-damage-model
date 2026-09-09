@@ -49,6 +49,21 @@ describe("计算器UI有限选项与技能说明", () => {
     expect(screen.getByText("【全军伤害 +30%】")).toBeTruthy();
   });
 
+  it("弗林特可作为盾兵车头选择并展示三个正式技能", () => {
+    render(<CalculatorApp />);
+    const shieldHead = screen.getByLabelText("盾兵车头") as HTMLSelectElement;
+    const flintOption = [...shieldHead.options].find(
+      (option) => option.value === "hero.head.fulinte",
+    );
+    expect(flintOption?.textContent).toContain("弗林特");
+    expect(flintOption?.textContent).toContain("盾兵伤害 +100%");
+    fireEvent.change(shieldHead, { target: { value: "hero.head.fulinte" } });
+    expect(screen.getByText("【盾兵伤害 +100%】")).toBeTruthy();
+    expect(screen.getAllByText("【全军攻击 +25%】").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("【全军穿透 +25%】").length).toBeGreaterThan(0);
+    expect(document.body.textContent).not.toMatch(/弗林特.*(?:supported|pending|confirmed)/i);
+  });
+
   it("首次渲染使用最新默认预设，并合并两个亨德里克车身技能", () => {
     render(<CalculatorApp />);
     expect((screen.getByLabelText("盾兵兵数") as HTMLInputElement).value).toBe("1824");

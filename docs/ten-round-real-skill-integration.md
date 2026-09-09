@@ -6,4 +6,4 @@
 
 评分为10回合总期望伤害。基础公式仍只计算单回合、单兵种基础伤害；概率层不复制 k、`sqrt(min(N,5000))` 总兵数上限、Cd 或 Ct 逻辑。
 
-当前 catalog：55技能记录（51 supported、4 pending），52效果记录（52 supported、0 pending）。尼莫与格温的已确认远征技能均已进入正式目录；具体清单见 pending-skill-audit.md。
+当前 catalog：59技能记录（55 supported、4 pending），56效果记录（56 supported、0 pending）。尼莫、弗林特与格温的已确认远征技能均已进入正式目录；具体清单见 pending-skill-audit.md。

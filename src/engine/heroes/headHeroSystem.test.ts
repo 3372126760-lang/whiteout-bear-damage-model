@@ -128,10 +128,10 @@ const calculateSynthetic = createBattleDamageCalculator({
 });
 
 describe("车头英雄数据与查询", () => {
-  it("保存9个真实车头；20个supported技能、没有真实pending记录", () => {
-    expect(getAllHeadHeroes()).toHaveLength(9);
-    expect(getHeadHeroesByTroopType("shield")).toHaveLength(2);
-    expect(getSupportedHeadSkills()).toHaveLength(20);
+  it("保存10个真实车头；23个supported技能、没有真实pending记录", () => {
+    expect(getAllHeadHeroes()).toHaveLength(10);
+    expect(getHeadHeroesByTroopType("shield")).toHaveLength(3);
+    expect(getSupportedHeadSkills()).toHaveLength(23);
     expect(getPendingHeadSkills()).toHaveLength(0);
     expect(getHeadHeroById("hero.head.heketuo")?.name).toBe("赫克托");
   });

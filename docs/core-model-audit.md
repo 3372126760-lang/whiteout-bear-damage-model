@@ -74,10 +74,10 @@ T12、T12-FC1～T12-FC5 继续是 `status=missing, constant=null`。所有已知
 
 ### 技能安全边界
 
-当前目录共有 55 项技能记录、52 项结构化效果：
+当前目录共有 59 项技能记录、56 项结构化效果：
 
-- skill：51 supported、4 pending、0 unsupported；
-- effect：52 supported、0 pending、0 unsupported；
+- skill：55 supported、4 pending、0 unsupported；
+- effect：56 supported、0 pending、0 unsupported；
 - `ENGINE_GAP=0`；
 - `RULE_UNKNOWN=0`，`DATA_SOURCE_UNCERTAIN=4`。
 

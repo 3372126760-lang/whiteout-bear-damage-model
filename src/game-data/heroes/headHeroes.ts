@@ -28,6 +28,24 @@ export const headHeroes = {
     ],
     notApplicable: [{ name: "生存本能", rawDescription: "降低我方受到的伤害，属于生存效果。" }],
   }),
+  "hero.head.fulinte": head({
+    id: "hero.head.fulinte", name: "弗林特", troopType: "shield", generation: 2,
+    weapon: "none", exclusiveGroupIds: ["head-exclusive.shield-primary"],
+    skills: [
+      supported("head-skill.fulinte.wildfire", "野火燎原", {
+        id: "skill.head.fulinte.wildfire", name: "野火燎原（5级）", trigger: { type: "always" },
+        effects: [{ type: "shieldDamage", value: 1, targetTroop: "shield" }],
+      }, "5级：使我方盾兵造成伤害提升100%；只作用于盾兵。"),
+      supported("head-skill.fulinte.burning-will", "燃烧意志", {
+        id: "skill.head.fulinte.burning-will", name: "燃烧意志（5级）", trigger: { type: "always" },
+        effects: [{ type: "attack", value: .25, targetTroop: "all" }],
+      }, "5级：我军全体部队攻击力提升25%，常驻生效。"),
+      supported("head-skill.fulinte.endless-fire", "无尽烈火", {
+        id: "skill.head.fulinte.endless-fire", name: "无尽烈火（5级）", trigger: { type: "always" },
+        effects: [{ type: "penetration", value: .25, targetTroop: "all" }],
+      }, "5级：我军全体部队穿透力提升25%，常驻生效。"),
+    ],
+  }),
   "hero.head.nimo": head({
     id: "hero.head.nimo", name: "尼莫", troopType: "shield", generation: null,
     weapon: "attack", exclusiveGroupIds: ["head-exclusive.shield-primary"], skills: [

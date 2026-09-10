@@ -133,6 +133,9 @@ export function createFullBattleSetupOptimizer(
           ? {}
           : { damageChannel: input.damageChannel }),
         ...(input.preparation === undefined ? {} : { preparation: input.preparation }),
+        ...(input.battleReportHeroAdjustment === undefined
+          ? {}
+          : { battleReportHeroAdjustment: input.battleReportHeroAdjustment }),
       });
 
       for (const body of bodyCombinations) {
@@ -147,6 +150,9 @@ export function createFullBattleSetupOptimizer(
                 ? {}
                 : { damageChannel: input.damageChannel }),
               ...(input.preparation === undefined ? {} : { preparation: input.preparation }),
+              ...(input.battleReportHeroAdjustment === undefined
+                ? {}
+                : { battleReportHeroAdjustment: input.battleReportHeroAdjustment }),
             };
             const evaluation = evaluate(battleInput);
             evaluatedCandidateCount += 1;

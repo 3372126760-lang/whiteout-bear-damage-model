@@ -13,6 +13,7 @@ import type {
 import type { DamageChannel } from "./skill";
 import type { FireCrystalSettings } from "./tenRoundExpectedDamage";
 import type { BattlePreparationConfig } from "./preparation";
+import type { BattleReportHeroAdjustmentConfig } from "./reportHero";
 import type { TroopType } from "./troop";
 import type {
   TroopCounts,
@@ -30,6 +31,7 @@ export interface BattleSetupOptimizationInput {
   readonly fireCrystal?: FireCrystalSettings;
   /** 专家、城镇、宠物、专武及兵种技能等级均作为固定输入，不属于本优化维度。 */
   readonly preparation?: BattlePreparationConfig;
+  readonly battleReportHeroAdjustment?: BattleReportHeroAdjustmentConfig;
 }
 
 export interface BattleSetupOptimizationOptions {

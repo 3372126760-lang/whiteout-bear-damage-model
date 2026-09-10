@@ -49,11 +49,11 @@ describe("v0.3 射手车头英雄", () => {
     expect(attack).toEqual([1, 1, 1, 1.05, 1.05, 1.05, 1.10, 1.10, 1.10, 1.15]);
   });
 
-  it("韦恩S6只在round5/9产生100%周期extraDamage", () => {
+  it("韦恩S6只在round4/8产生100%周期extraDamage", () => {
     const result = calculate("hero.head.weien");
     for (const round of result.expectedRoundDamage) {
       const extra = Object.values(round.expectedTroopDamageBreakdowns).reduce((sum, value) => sum + (value?.extraDamage ?? 0), 0);
-      expect(extra).toBeCloseTo([5, 9].includes(round.round) ? calculate().expectedRoundDamage[0]!.expectedNormalDamage : 0, 8);
+      expect(extra).toBeCloseTo([4, 8].includes(round.round) ? calculate().expectedRoundDamage[0]!.expectedNormalDamage : 0, 8);
     }
   });
 
@@ -106,7 +106,7 @@ describe("v0.3 射手车头英雄", () => {
     expect(round2.expectedTroopDamageBreakdowns.marksman!.extraDamage).toBeCloseTo(round2.expectedTroopDamageBreakdowns.marksman!.normalDamage * 2, 10);
   });
 
-  it("乌尔卡努丝S13二技能复用格温第6次额伤与第8次易伤覆盖语义", () => {
+  it("乌尔卡努丝S13二技能复用格温第6次额伤与第7次易伤覆盖语义", () => {
     const gwen = getHeadHeroById("hero.head.gewen")!;
     const ulkarnus = getHeadHeroById("hero.head.wuerkanusi")!;
     const project = (hero: typeof gwen) => hero.headSkills

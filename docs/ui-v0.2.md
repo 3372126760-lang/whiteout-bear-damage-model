@@ -20,4 +20,8 @@
 
 ## 版本日志
 
-页面日志由 `src/app/changelog.ts` 的 `CHANGELOG_ENTRIES` 驱动，当前包含 v0.1、v0.2 与 v0.3。
+页面日志由 `src/app/changelog.ts` 的 `CHANGELOG_ENTRIES` 驱动，当前包含 v0.1、v0.2、v0.3 与 v0.4。
+
+## v0.4 战报英雄输入
+
+战报模式的盾/矛/射各自增加“战报英雄”和“战报英雄专武等级”；实际车头区各自增加“车头专武等级”。战报英雄只用于静态攻击与专武穿透差值修正，不触发技能。正式计算和优化器共享 `resolveBattleReportEffectiveAttributes()`；集结模式不应用该差值。R、SR、吉娜没有专武，选择后等级固定0并禁用。详见 `report-hero-system.md`。

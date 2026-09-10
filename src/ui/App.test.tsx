@@ -6,9 +6,9 @@ import { CalculatorApp } from "./App";
 afterEach(cleanup);
 
 describe("计算器UI有限选项与技能说明", () => {
-  it("标题从统一版本常量显示v0.3", () => {
+  it("标题从统一版本常量显示v0.4", () => {
     render(<CalculatorApp />);
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("无尽冬日打熊伤害模型 v0.3");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("无尽冬日打熊伤害模型 v0.4");
     expect(screen.getByText("缥缈制作，欢迎移民583")).toBeTruthy();
     expect(document.querySelector(".header-meta-row .author-note")).toBeTruthy();
   });
@@ -38,10 +38,38 @@ describe("计算器UI有限选项与技能说明", () => {
     expect(ratioStep.step).toBe("0.01");
   });
 
+  it("战报模式按兵种展示数据驱动战报英雄和0至10级专武", () => {
+    render(<CalculatorApp />);
+    const shieldReport = screen.getByLabelText("盾兵战报英雄") as HTMLSelectElement;
+    expect([...shieldReport.options].map((option) => option.textContent)).toEqual([
+      "R", "SR", "S1", "尼莫（S1）", "弗林特（S2）", "S3", "S4", "赫克托（S5）",
+      "S6", "S7", "S8", "S9", "S10", "S11", "S12", "S13", "S14", "S15", "S16",
+    ]);
+    const marksmanReport = screen.getByLabelText("射手战报英雄") as HTMLSelectElement;
+    expect([...marksmanReport.options].some((option) => option.textContent === "吉娜（SR）")).toBe(true);
+    const reportWeapon = screen.getByLabelText("盾兵战报英雄专武等级") as HTMLSelectElement;
+    expect(reportWeapon.disabled).toBe(true);
+    expect(reportWeapon.value).toBe("0");
+    fireEvent.change(shieldReport, { target: { value: "report-hero.shield.head.nimo" } });
+    expect(reportWeapon.disabled).toBe(false);
+    expect([...reportWeapon.options].map((option) => option.value)).toEqual(Array.from({ length: 11 }, (_, level) => String(level)));
+  });
+
+  it("实际三个车头各自拥有默认0级、选英雄后可用的专武等级", () => {
+    render(<CalculatorApp />);
+    for (const type of ["盾兵", "矛兵", "射手"] as const) {
+      const select = screen.getByLabelText(`${type}车头专武等级`) as HTMLSelectElement;
+      expect(select.value).toBe("0");
+      expect(select.disabled).toBe(true);
+    }
+    fireEvent.change(screen.getByLabelText("射手车头"), { target: { value: "hero.head.bulanqi" } });
+    expect((screen.getByLabelText("射手车头专武等级") as HTMLSelectElement).disabled).toBe(false);
+  });
+
   it("尼莫可选并展示三个正式远征技能", () => {
     render(<CalculatorApp />);
     const shieldHead = screen.getByLabelText("盾兵车头") as HTMLSelectElement;
-    expect([...shieldHead.options].some((option) => option.textContent === "尼莫")).toBe(true);
+    expect([...shieldHead.options].some((option) => option.textContent === "尼莫（S1）")).toBe(true);
     fireEvent.change(shieldHead, { target: { value: "hero.head.nimo" } });
     expect(screen.getByText("【战前宣言】")).toBeTruthy();
     expect(screen.getByText("【剑术指导】")).toBeTruthy();
@@ -156,9 +184,10 @@ describe("计算器UI有限选项与技能说明", () => {
     expect((screen.getByLabelText("部队攻击") as HTMLInputElement).value).toBe("333");
   });
 
-  it("更新日志从数据列表展示v0.1至v0.3", () => {
+  it("更新日志从数据列表展示v0.1至v0.4", () => {
     render(<CalculatorApp />);
     expect(screen.getByText("更新日志")).toBeTruthy();
+    expect(screen.getByText("v0.4 · 2026-09-10")).toBeTruthy();
     expect(screen.getByText("v0.3 · 2026-09-10")).toBeTruthy();
     expect(screen.getByText("v0.2 · 2026-09-09")).toBeTruthy();
     expect(screen.getByText("v0.1 · 2026-09-09")).toBeTruthy();

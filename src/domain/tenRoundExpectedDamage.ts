@@ -12,6 +12,10 @@ import type { SkillCalculationStatus } from "./skill";
 import type { TroopType } from "./troop";
 import type { TroopSkillDefinition, TroopSkillId } from "./troopSkill";
 import type { BattlePreparationConfig, PreparedBattleModifiers } from "./preparation";
+import type {
+  BattleReportHeroAdjustmentConfig,
+  ResolvedBattleReportAttributeAdjustment,
+} from "./reportHero";
 
 export interface FireCrystalSettings {
   readonly skillIds: readonly TroopSkillId[];
@@ -20,6 +24,8 @@ export interface FireCrystalSettings {
 export interface TenRoundExpectedDamageInput extends BattleDamageInput {
   readonly fireCrystal?: FireCrystalSettings;
   readonly preparation?: BattlePreparationConfig;
+  /** 仅战报模式提供；先还原实际车头静态A/P，再进入基础伤害。 */
+  readonly battleReportHeroAdjustment?: BattleReportHeroAdjustmentConfig;
 }
 
 export interface AppliedRealSkill {
@@ -83,6 +89,9 @@ export interface TenRoundExpectedDamageResult
   readonly unsupportedSkills: readonly SkippedRealSkill[];
   readonly roundSkillExplanations: readonly TenRoundSkillRoundExplanation[];
   readonly preparation?: PreparedBattleModifiers;
+  readonly battleReportHeroAdjustments?: Readonly<
+    Record<TroopType, ResolvedBattleReportAttributeAdjustment>
+  >;
 }
 
 export interface TenRoundExpectedDamageDependencies {

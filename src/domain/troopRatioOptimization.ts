@@ -9,6 +9,7 @@ import type { DamageChannel } from "./skill";
 import type { FireCrystalSettings } from "./tenRoundExpectedDamage";
 import type { TroopLevelId, TroopStats, TroopType } from "./troop";
 import type { BattlePreparationConfig } from "./preparation";
+import type { BattleReportHeroAdjustmentConfig } from "./reportHero";
 
 /** 所有比例均使用百分数单位：5 表示 5%。 */
 export interface TroopRatios {
@@ -40,6 +41,7 @@ export interface TroopRatioOptimizationInput {
   readonly enemyBaseDefense?: number;
   readonly damageChannel?: DamageChannel;
   readonly preparation?: BattlePreparationConfig;
+  readonly battleReportHeroAdjustment?: BattleReportHeroAdjustmentConfig;
   /** 可选的当前比例，用于计算相对提升；不参与候选搜索。 */
   readonly baselineRatios?: TroopRatios;
 }

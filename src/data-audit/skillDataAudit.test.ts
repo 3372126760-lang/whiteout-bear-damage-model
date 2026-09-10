@@ -34,7 +34,7 @@ describe("真实技能目录审计", () => {
   it("当前skill、hero和troop skill数据全部通过校验", () => {
     expect(validateSkillData()).toEqual({
       valid: true,
-      checkedCount: 80,
+      checkedCount: 82,
       issues: [],
     });
     expect(validateHeroData()).toEqual({
@@ -543,12 +543,12 @@ describe("真实技能目录审计", () => {
     const report = generateSkillSupportReport();
 
     expect(report.totals.skills).toEqual({
-      supported: 76,
+      supported: 78,
       pending: 4,
       unsupported: 0,
     });
     expect(report.totals.effects).toEqual({
-      supported: 80,
+      supported: 82,
       pending: 0,
       unsupported: 0,
     });
@@ -557,7 +557,7 @@ describe("真实技能目录审计", () => {
       pending: 4,
       unsupported: 0,
     });
-    expect(report.byCategory.head.skills).toEqual({ supported: 44, pending: 0, unsupported: 0 });
+    expect(report.byCategory.head.skills).toEqual({ supported: 46, pending: 0, unsupported: 0 });
     expect(report.byCategory.fireCrystal.skills).toEqual({ supported: 6, pending: 0, unsupported: 0 });
     expect(report.byCategory.troopTierSkill.skills).toEqual({ supported: 1, pending: 0, unsupported: 0 });
   });

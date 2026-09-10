@@ -12,7 +12,7 @@ const troops = [
 const baseline = () => calculateTenRoundExpectedDamage({ troops, bodyHeroIds: [] });
 
 describe("当前正式熊模型的简化伤害语义", () => {
-  it("韦恩仅在round5与round9产生100% extraDamage", () => {
+  it("车身韦恩仍按车身目录只在round5与round9产生100% extraDamage", () => {
     const base = baseline();
     const result = calculateTenRoundExpectedDamage({ troops, bodyHeroIds: ["hero.body.weien"] });
     for (const round of result.expectedDamageByRound) {
@@ -97,10 +97,10 @@ describe("当前正式熊模型的简化伤害语义", () => {
     }
   });
 
-  it("亨德里克第三技能仅round3追加当前普通伤害40%", () => {
+  it("亨德里克第三技能在round3/6/9追加当前普通伤害40%", () => {
     const result = calculateTenRoundExpectedDamage({ troops, bodyHeroIds: [], headFormation: { marksmanHeroId: "hero.head.hengdelike" } });
     for (const round of result.expectedDamageByRound) {
-      expect(round.expectedExtraDamage).toBeCloseTo(round.round === 3 ? round.expectedNormalDamage * .4 : 0, 10);
+      expect(round.expectedExtraDamage).toBeCloseTo([3, 6, 9].includes(round.round) ? round.expectedNormalDamage * .4 : 0, 10);
       expect(round.expectedExtraAttackDamage).toBe(0);
     }
   });
@@ -123,10 +123,12 @@ describe("当前正式熊模型的简化伤害语义", () => {
     expect(round5.expectedTotalDamage).toBeCloseTo(round5.expectedNormalDamage * 5, 9);
   });
 
-  it("不同来源extraDamage同区相加而非相乘", () => {
+  it("车身韦恩与布兰琪各自遵守独立周期，未命中同回合时不误加", () => {
     const result = calculateTenRoundExpectedDamage({ troops, bodyHeroIds: ["hero.body.weien"], headFormation: { marksmanHeroId: "hero.head.bulanqi" } });
     const round5 = result.expectedDamageByRound[4]!;
-    expect(round5.expectedExtraDamage).toBeCloseTo(round5.expectedNormalDamage * 1.75, 9);
+    expect(round5.expectedExtraDamage).toBeCloseTo(round5.expectedNormalDamage, 9);
+    const round6 = result.expectedDamageByRound[5]!;
+    expect(round6.expectedExtraDamage).toBeCloseTo(round6.expectedNormalDamage * .75, 9);
   });
 
   it("正式入口不创建AttackEvent且extraAttack结果恒为0", () => {

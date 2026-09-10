@@ -10,6 +10,7 @@ import {
   knownTroopLevelOptions, petBuffLevelOptions,
   petCapacityLevelOptions, runOptimizationCore, topKOptions,
   troopSkillLevelOptions, toUiOptimizationResult, visiblePendingSkillDetails,
+  reportHeroOptionsByTroop, weaponLevelOptions,
   TROOP_LABELS, TROOP_TYPES, type CalculatorFormState, type CalculatorInputMode,
   type UiSelectOption,
   type UiCalculationResult, type UiOptimizationKind, type UiOptimizationResult,
@@ -35,8 +36,37 @@ export function CalculatorApp() {
   const selectedHeroSkillDetails = useMemo(() => getSelectedHeroSkillDetails(form), [form]);
   const updateTroop = (type: typeof TROOP_TYPES[number], key: "count" | "troopLevelId" | "attackPercent" | "penetrationPercent", value: string) =>
     setForm((current) => current.inputMode === "battleReport"
-      ? ({ ...current, battleReportInputState: { troops: { ...current.battleReportInputState.troops, [type]: { ...current.battleReportInputState.troops[type], [key]: value } } } })
+      ? ({ ...current, battleReportInputState: { ...current.battleReportInputState, troops: { ...current.battleReportInputState.troops, [type]: { ...current.battleReportInputState.troops[type], [key]: value } } } })
       : ({ ...current, rallyInputState: { ...current.rallyInputState, troops: { ...current.rallyInputState.troops, [type]: { ...current.rallyInputState.troops[type], [key]: value } } } }));
+  const updateReportHero = (type: typeof TROOP_TYPES[number], profileId: string) => {
+    const profile = reportHeroOptionsByTroop[type].find((candidate) => candidate.id === profileId);
+    setForm((current) => ({
+      ...current,
+      battleReportInputState: {
+        ...current.battleReportInputState,
+        heroSelections: {
+          ...reportSelections(current),
+          [type]: {
+            profileId,
+            weaponLevel: profile?.hasExclusiveWeapon === true
+              ? current.battleReportInputState.heroSelections?.[type]?.weaponLevel ?? "0"
+              : "0",
+          },
+        },
+      },
+    }));
+  };
+  const updateReportWeaponLevel = (type: typeof TROOP_TYPES[number], weaponLevel: string) =>
+    setForm((current) => ({
+      ...current,
+      battleReportInputState: {
+        ...current.battleReportInputState,
+        heroSelections: {
+          ...reportSelections(current),
+          [type]: { ...reportSelection(current, type), weaponLevel },
+        },
+      },
+    }));
   const switchInputMode = (inputMode: CalculatorInputMode) => {
     setForm((current) => ({ ...current, inputMode }));
     setResult(null);
@@ -69,6 +99,10 @@ export function CalculatorApp() {
           <label>等级<select aria-label={`${TROOP_LABELS[type]}等级`} value={activeTroops[type].troopLevelId} onChange={(event) => updateTroop(type, "troopLevelId", event.target.value)}>{knownTroopLevelOptions.map((level) => <option value={level.id} key={level.id}>{level.id}</option>)}</select></label>
           <label>{form.inputMode === "rally" ? `${TROOP_LABELS[type]}攻击 %` : "攻击加成 %"}<input aria-label={`${TROOP_LABELS[type]}攻击加成`} type="number" value={activeTroops[type].attackPercent} onChange={(event) => updateTroop(type, "attackPercent", event.target.value)} /></label>
           <label>{form.inputMode === "rally" ? `${TROOP_LABELS[type]}穿透 %` : "穿透加成 %"}<input aria-label={`${TROOP_LABELS[type]}穿透加成`} type="number" value={activeTroops[type].penetrationPercent} onChange={(event) => updateTroop(type, "penetrationPercent", event.target.value)} /></label>
+          {form.inputMode === "battleReport" && <>
+            <label>战报英雄<select aria-label={`${TROOP_LABELS[type]}战报英雄`} value={reportSelection(form, type).profileId} onChange={(event) => updateReportHero(type, event.target.value)}>{reportHeroOptionsByTroop[type].map((profile) => <option value={profile.id} key={profile.id}>{profile.label}</option>)}</select></label>
+            <label>{TROOP_LABELS[type]}战报英雄专武等级<LevelSelect value={reportSelection(form, type).weaponLevel} options={weaponLevelOptions} onChange={(value) => updateReportWeaponLevel(type, value)} disabled={!reportHeroOptionsByTroop[type].find((profile) => profile.id === reportSelection(form, type).profileId)?.hasExclusiveWeapon} /></label>
+          </>}
         </fieldset>)}</div>
 
         <h3>{form.inputMode === "battleReport" ? "出征容量与专家" : "专家"}</h3><div className="two-col">
@@ -80,7 +114,7 @@ export function CalculatorApp() {
         <h3>宠物增益</h3><div className="two-col">{[...DAMAGE_PET_KEYS, ...(form.inputMode === "battleReport" ? ["capacityLevel" as const] : [])].map((key) => <label key={key}>{petLabels[key]}<LevelSelect value={form.preparation.pet[key]} options={key === "capacityLevel" ? petCapacityLevelOptions : petBuffLevelOptions} onChange={(value) => setForm((current) => ({ ...current, preparation: { ...current.preparation, pet: { ...current.preparation.pet, [key]: value } } }))} /></label>)}</div>
         <h3>兵种技能等级</h3><div className="two-col"><label>炽火燧星（射T12技能）<LevelSelect value={form.preparation.marksmanBlazingStarLevel} options={troopSkillLevelOptions} onChange={(value) => updatePreparation("marksmanBlazingStarLevel", value)} /></label><label>烈辉战阵（矛T12技能）<LevelSelect value={form.preparation.lancerT12SkillLevel} options={troopSkillLevelOptions} onChange={(value) => updatePreparation("lancerT12SkillLevel", value)} /></label></div>
 
-        <h3>车头英雄</h3><div className="three-col">{TROOP_TYPES.map((type) => <label key={type}>{TROOP_LABELS[type]}车头<select value={form.headHeroIds[type]} onChange={(event) => setForm((current) => ({ ...current, headHeroIds: { ...current.headHeroIds, [type]: event.target.value } }))}><option value="">不选择</option>{headHeroOptions.filter((hero) => hero.troopType === type).map((hero) => <option value={hero.id} key={hero.id}>{formatHeadHeroOptionLabel(hero)}</option>)}</select></label>)}</div>
+        <h3>车头英雄</h3><div className="three-col">{TROOP_TYPES.map((type) => <div className="head-slot" key={type}><label>{TROOP_LABELS[type]}车头<select value={form.headHeroIds[type]} onChange={(event) => setForm((current) => ({ ...current, headHeroIds: { ...current.headHeroIds, [type]: event.target.value }, headHeroWeaponLevels: { ...current.headHeroWeaponLevels, [type]: event.target.value ? current.headHeroWeaponLevels[type] : "0" } }))}><option value="">不选择</option>{headHeroOptions.filter((hero) => hero.troopType === type).map((hero) => <option value={hero.id} key={hero.id}>{formatHeadHeroOptionLabel(hero)}</option>)}</select></label><label>{TROOP_LABELS[type]}车头专武等级<LevelSelect value={form.headHeroWeaponLevels[type]} options={weaponLevelOptions} onChange={(value) => setForm((current) => ({ ...current, headHeroWeaponLevels: { ...current.headHeroWeaponLevels, [type]: value } }))} disabled={!form.headHeroIds[type]} /></label></div>)}</div>
         <div className="two-col">
           <label>集结专武攻击加成 %<input type="number" value={form.preparation.rallyWeaponBuff.attackPercent} onChange={(event) => setForm((current) => ({ ...current, preparation: { ...current.preparation, rallyWeaponBuff: { ...current.preparation.rallyWeaponBuff, attackPercent: event.target.value } } }))} /></label>
           <label>集结专武穿透加成 %<input type="number" value={form.preparation.rallyWeaponBuff.penetrationPercent} onChange={(event) => setForm((current) => ({ ...current, preparation: { ...current.preparation, rallyWeaponBuff: { ...current.preparation.rallyWeaponBuff, penetrationPercent: event.target.value } } }))} /></label>
@@ -109,8 +143,23 @@ function Metric({ n, v }: { readonly n: string; readonly v: number }) {
   return <div className="metric"><span>{n}</span><b>{nf.format(v)}</b></div>;
 }
 
-function LevelSelect({ value, options, onChange }: { readonly value: string; readonly options: readonly UiSelectOption[]; readonly onChange: (value: string) => void }) {
-  return <select value={value} onChange={(event) => onChange(event.target.value)}>{options.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select>;
+function reportSelection(form: CalculatorFormState, troopType: typeof TROOP_TYPES[number]) {
+  return form.battleReportInputState.heroSelections?.[troopType] ?? {
+    profileId: `report-hero.${troopType}.r`,
+    weaponLevel: "0",
+  };
+}
+
+function reportSelections(form: CalculatorFormState) {
+  return {
+    shield: reportSelection(form, "shield"),
+    lancer: reportSelection(form, "lancer"),
+    marksman: reportSelection(form, "marksman"),
+  };
+}
+
+function LevelSelect({ value, options, onChange, disabled = false }: { readonly value: string; readonly options: readonly UiSelectOption[]; readonly onChange: (value: string) => void; readonly disabled?: boolean }) {
+  return <select value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>{options.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select>;
 }
 
 function runOptimizationInWorker(

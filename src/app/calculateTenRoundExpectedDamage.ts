@@ -17,6 +17,7 @@ import { headHeroCatalog } from "../game-data/heroes/headHeroCatalog";
 import { getTroopSkillById } from "../game-data/troop-skills/troopSkillQueries";
 import { resolveAutomaticTroopSkills } from "../game-data/troop-skills/automaticTroopSkills";
 import { prepareBattleModifiers } from "../systems/preparation";
+import { resolveBattleReportAdjustedInput } from "../systems/reportHeroAdjustment";
 import type {
   AppliedRealSkill,
   SkippedRealSkill,
@@ -65,7 +66,8 @@ export function createTenRoundExpectedDamageCalculator(
   options?: TenRoundExpectedDamageOptions,
 ) => TenRoundExpectedDamageResult {
   return (input, options = {}) => {
-    const { fireCrystal, preparation, ...unpreparedBattleInput } = input;
+    const reportResolution = resolveBattleReportAdjustedInput(input);
+    const { fireCrystal, preparation, ...unpreparedBattleInput } = reportResolution.input;
     const prepared = preparation === undefined ? undefined : prepareBattleModifiers(
       unpreparedBattleInput.troops,
       unpreparedBattleInput.headFormation ?? {},
@@ -215,6 +217,9 @@ export function createTenRoundExpectedDamageCalculator(
         skippedPendingSkills,
       ),
       ...(prepared === undefined ? {} : { preparation: prepared }),
+      ...(reportResolution.adjustments === undefined
+        ? {}
+        : { battleReportHeroAdjustments: reportResolution.adjustments }),
     };
   };
 }

@@ -31,6 +31,7 @@ import {
   type CompiledBodyDetailedScore,
   type CompiledBodyEffect,
 } from "./compiledBodyEvaluator";
+import { resolveBattleReportAdjustedInput } from "../../systems/reportHeroAdjustment";
 
 const DEFAULT_BODY_COUNT = 4;
 const DEFAULT_TOP_K = 10;
@@ -95,7 +96,7 @@ export function createBodyHeroOptimizer(
       dependencies.calculateTenRoundExpectedDamage === undefined &&
       noBodyEvaluation.expectedResult !== undefined
       ? tryCreateStaticBodyBattleContext(
-          { ...baseInput, bodyHeroIds: [] },
+          resolveBattleReportAdjustedInput({ ...baseInput, bodyHeroIds: [] }).input,
           noBodyEvaluation.expectedResult,
         )
       : null;
@@ -391,7 +392,8 @@ function createCompiledEvaluation(
   expectedTenRoundDamage: number,
   enemyBaseDefense: number | undefined,
 ): OptimizerBattleEvaluation {
-  const { fireCrystal: _fireCrystal, preparation: _preparation, ...singleRoundInput } = input;
+  const resolvedInput = resolveBattleReportAdjustedInput(input).input;
+  const { fireCrystal: _fireCrystal, preparation: _preparation, ...singleRoundInput } = resolvedInput;
   const singleRoundResult = calculateBattleDamage(singleRoundInput);
   const deterministicTenRoundResult = calculateBearBattleTotalDamageFromSingleRound(
     singleRoundResult,

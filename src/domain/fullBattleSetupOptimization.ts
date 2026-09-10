@@ -15,6 +15,7 @@ import type {
   TroopRatioSettings,
 } from "./troopRatioOptimization";
 import type { BattlePreparationConfig } from "./preparation";
+import type { BattleReportHeroAdjustmentConfig } from "./reportHero";
 
 export type OptimizationDimension<TFixed, TOptimize> =
   | ({ readonly mode: "fixed" } & TFixed)
@@ -80,6 +81,7 @@ export interface FullBattleSetupOptimizationInput {
   readonly damageChannel?: DamageChannel;
   readonly enemyBaseDefense?: number;
   readonly preparation?: BattlePreparationConfig;
+  readonly battleReportHeroAdjustment?: BattleReportHeroAdjustmentConfig;
 }
 
 export interface FullBattleSetupOptimizationOptions {

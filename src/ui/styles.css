@@ -162,6 +162,13 @@ fieldset,
   gap: 10px;
 }
 
+.head-slot {
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid #294858;
+  border-radius: 9px;
+}
+
 fieldset {
   margin: 0;
   padding: 12px;

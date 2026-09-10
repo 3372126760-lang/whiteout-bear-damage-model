@@ -10,6 +10,7 @@ import type {
 import type { BodyHeroId, SupportedHeroDefinition } from "../../domain/hero";
 import type { OptimizerScoringMode } from "../../domain/optimizerScoring";
 import type { TenRoundExpectedDamageInput, TenRoundExpectedDamageResult } from "../../domain/tenRoundExpectedDamage";
+import { resolveBattleReportAdjustedInput } from "../../systems/reportHeroAdjustment";
 import type { TroopCounts, TroopRatios } from "../../domain/troopRatioOptimization";
 import type { TroopType } from "../../domain/troop";
 import {
@@ -155,7 +156,9 @@ function optimizeBattleSetupByBodyEffects(
   const noBodyCoefficients = coefficientsFromReference(actualReferenceCounts, noBodyReference);
   const staticContext = scoringMode === "tenRoundExpected" && noBodyReference.expectedResult !== undefined
     ? tryCreateStaticBodyBattleContext(
-        createBattleInput(input, createTroops(input, referenceCounts), []),
+        resolveBattleReportAdjustedInput(
+          createBattleInput(input, createTroops(input, referenceCounts), []),
+        ).input,
         noBodyReference.expectedResult,
       )
     : null;
@@ -616,6 +619,9 @@ function createBattleInput(
     ...(input.headFormation === undefined ? {} : { headFormation: input.headFormation }),
     ...(input.fireCrystal === undefined ? {} : { fireCrystal: input.fireCrystal }),
     ...(input.preparation === undefined ? {} : { preparation: input.preparation }),
+    ...(input.battleReportHeroAdjustment === undefined
+      ? {}
+      : { battleReportHeroAdjustment: input.battleReportHeroAdjustment }),
     ...(input.damageChannel === undefined ? {} : { damageChannel: input.damageChannel }),
   };
 }
@@ -732,7 +738,8 @@ function createCompiledEvaluation(
   expectedTenRoundDamage: number,
   enemyBaseDefense: number | undefined,
 ): OptimizerBattleEvaluation {
-  const { fireCrystal: _fireCrystal, preparation: _preparation, ...singleRoundInput } = input;
+  const resolvedInput = resolveBattleReportAdjustedInput(input).input;
+  const { fireCrystal: _fireCrystal, preparation: _preparation, ...singleRoundInput } = resolvedInput;
   const singleRoundResult = calculateBattleDamage(singleRoundInput);
   const deterministicTenRoundResult = calculateBearBattleTotalDamageFromSingleRound(
     singleRoundResult,

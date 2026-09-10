@@ -300,6 +300,9 @@ function createBattleInput(
     ...(input.fireCrystal === undefined ? {} : { fireCrystal: input.fireCrystal }),
     ...(input.damageChannel === undefined ? {} : { damageChannel: input.damageChannel }),
     ...(input.preparation === undefined ? {} : { preparation: input.preparation }),
+    ...(input.battleReportHeroAdjustment === undefined
+      ? {}
+      : { battleReportHeroAdjustment: input.battleReportHeroAdjustment }),
   };
 }
 

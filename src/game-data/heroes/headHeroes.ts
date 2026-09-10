@@ -7,11 +7,11 @@ import type {
 import type { Skill, SkillEffectData } from "../../domain/skill";
 import type { TroopType } from "../../domain/troop";
 
-const SOURCE = "用户 v0.3 最新统一规则（2026-09-10）";
+const SOURCE = "用户 v0.4 最新统一规则（2026-09-10）";
 
 export const headHeroes = {
   "hero.head.heketuo": head({
-    id: "hero.head.heketuo", name: "赫克托", troopType: "shield", generation: null,
+    id: "hero.head.heketuo", name: "赫克托", troopType: "shield", generation: 5,
     weapon: "attack", exclusiveGroupIds: ["head-exclusive.shield-primary"],
     skills: [
       supported("head-skill.heketuo.thunder-strike", "雷霆出击", {
@@ -47,7 +47,7 @@ export const headHeroes = {
     ],
   }),
   "hero.head.nimo": head({
-    id: "hero.head.nimo", name: "尼莫", troopType: "shield", generation: null,
+    id: "hero.head.nimo", name: "尼莫", troopType: "shield", generation: 1,
     weapon: "attack", exclusiveGroupIds: ["head-exclusive.shield-primary"], skills: [
       supported("head-skill.nimo.prebattle-declaration", "战前宣言", {
         id: "skill.head.nimo.prebattle-declaration", name: "战前宣言（5级）", trigger: { type: "always" },
@@ -65,7 +65,7 @@ export const headHeroes = {
     exploration: ["三断斩", "剑气", "孤傲"].map((name) => ({ name, rawDescription: "已确认属于探险技能，不是远征技能。" })),
   }),
   "hero.head.miya": head({
-    id: "hero.head.miya", name: "米娅", troopType: "lancer", generation: null, weapon: "attack",
+    id: "hero.head.miya", name: "米娅", troopType: "lancer", generation: 3, weapon: "attack",
     skills: [
       supported("head-skill.miya.doom-entanglement", "厄运缠身", miaVulnerableSkill("skill.head.miya.doom-entanglement"), "5级：三兵种每回合各一次普通攻击，每次50%独立触发；同回合不叠加，下一回合vulnerable+50%。"),
       supported("head-skill.miya.lucky-blessing", "幸运加护", {
@@ -89,6 +89,10 @@ export const headHeroes = {
       id: "skill.head.alongsuo.penetration", name: "穿透提升（5级）", trigger: probability(.4),
       effects: [{ type: "penetration", value: .5, targetTroop: "all" }],
     }, "5级：每回合40%概率使全军穿透+50%，当回合生效，持续1回合。"),
+    supported("head-skill.alongsuo.damage", "概率伤害提升", {
+      id: "skill.head.alongsuo.damage", name: "概率伤害提升（5级）", trigger: probability(.5),
+      effects: [{ type: "baseDamageIncrease", value: .5, targetTroop: "all" }],
+    }, "5级：每回合判定一次，50%概率使当前伤害+50%，仅当回合生效。"),
   ], [{ name: "降低敌军伤害", rawDescription: "只影响敌方输出。" }]),
   "hero.head.geleige": marksmanHead("hero.head.geleige", "格雷格", 3, "none", [
     supported("head-skill.geleige.damage-refresh", "全军伤害提升", {
@@ -127,6 +131,10 @@ export const headHeroes = {
     ...sixthAttackSpecialSkills("gewen"),
   ]),
   "hero.head.buladeli": marksmanHead("hero.head.buladeli", "布拉德利", 7, "none", [
+    supported("head-skill.buladeli.attack", "全军攻击提升", {
+      id: "skill.head.buladeli.attack", name: "全军攻击提升（5级）", trigger: { type: "always" },
+      effects: [{ type: "attack", value: .25, targetTroop: "all" }],
+    }, "5级：全军攻击+25%，round1至round10常驻生效。"),
     supported("head-skill.buladeli.troop-counter", "兵种克制增伤", {
       id: "skill.head.buladeli.troop-counter", name: "兵种克制增伤（5级）", trigger: { type: "always" },
       effects: [{ type: "troopVsTroopDamage", value: .25, valueByEnemyTroop: { shield: .25, lancer: .30 }, targetTroop: "all" }],
@@ -139,9 +147,9 @@ export const headHeroes = {
   "hero.head.weien": marksmanHead("hero.head.weien", "韦恩", 6, "none", [
     supported("head-skill.weien.periodic-extra", "周期额外打击", {
       id: "skill.head.weien.periodic-extra", name: "周期额外打击（5级）",
-      trigger: { type: "everyNRounds", interval: 4, firstTriggerRound: 5, triggerPhase: "beforeAttack" },
+      trigger: { type: "everyNRounds", interval: 4, firstTriggerRound: 4, triggerPhase: "beforeAttack" },
       effects: [extraDamage(1, "all")],
-    }, "5级：首次round5、之后每4回合触发；10回合内round5、round9造成100% extraDamage，不产生extraAttack。"),
+    }, "5级：首次round4、之后每4回合触发；10回合内round4、round8造成100% extraDamage，不产生extraAttack。"),
     supported("head-skill.weien.critical", "暴击", {
       id: "skill.head.weien.critical", name: "暴击（5级）",
       trigger: { type: "probability", probability: .25, triggerPhase: "onAttack", frequency: "oncePerRound", independentTroopTargets: ["shield", "lancer", "marksman"] },
@@ -172,8 +180,8 @@ export const headHeroes = {
     }, "5级：敌方防御降低25%，等效倍率1.25。"),
     supported("head-skill.hengdelike.round3-extra", "第三技能", {
       id: "skill.head.hengdelike.round3-extra", name: "第三技能（5级）", trigger: { type: "always" },
-      effects: [{ ...extraDamage(.40, "all"), activeRounds: [3] }],
-    }, "5级：round3造成40% extraDamage，以当前普通攻击伤害为basis，不产生额外攻击事件。"),
+      effects: [{ ...extraDamage(.40, "all"), activeRounds: [3, 6, 9] }],
+    }, "5级：每3回合触发一次；round3、round6、round9造成40% extraDamage，以当前普通攻击伤害为basis，不产生额外攻击事件。"),
   ], [{ name: "第二技能", rawDescription: "只影响敌方输出。" }]),
   "hero.head.bulanqi": marksmanHead("hero.head.bulanqi", "布兰琪", 10, "penetration", [
     supported("head-skill.bulanqi.penetration", "全军穿透", {
@@ -182,8 +190,8 @@ export const headHeroes = {
     }, "5级：全军穿透+25%。"),
     supported("head-skill.bulanqi.extra-damage", "额外伤害", {
       id: "skill.head.bulanqi.extra-damage", name: "额外伤害（5级）", trigger: { type: "always" },
-      effects: [extraDamage(.75, "all")],
-    }, "5级：75% extraDamage，不产生extraAttack。"),
+      effects: [{ ...extraDamage(.75, "all"), activeRounds: [3, 6, 9] }],
+    }, "5级：每3回合触发一次，首次round3；round3、round6、round9造成75% extraDamage，不产生extraAttack。"),
   ], [{ name: "第三技能", rawDescription: "只针对矛兵/射手目标；巨熊为盾，不适用。" }]),
   "hero.head.lufusi": marksmanHead("hero.head.lufusi", "鲁弗斯", 11, "attack", [
     supported("head-skill.lufusi.fire-warband", "火焰战团", {
@@ -284,12 +292,12 @@ function sixthAttackSpecialSkills(heroKey: string): readonly HeroSkillDefinition
       normalAttackCounter: counter,
       effects: [{ ...extraDamage(1, "all"), activeRounds: [6] }],
     }, "每个兵种第6次普通攻击造成100% extraDamage；以该次普通攻击的当前基础伤害为basis，不产生extraAttack或新的AttackEvent。"),
-    supported(`head-skill.${heroKey}.override`, "第8次攻击易伤覆盖", {
-      id: `skill.head.${heroKey}.override`, name: "第8次攻击易伤覆盖（5级）",
-      trigger: { type: "probability", probability: 1, triggerPhase: "roundStart", frequency: "explicitSchedule", triggerRounds: [8] },
+    supported(`head-skill.${heroKey}.override`, "第7次攻击易伤覆盖", {
+      id: `skill.head.${heroKey}.override`, name: "第7次攻击易伤覆盖（5级）",
+      trigger: { type: "probability", probability: 1, triggerPhase: "roundStart", frequency: "explicitSchedule", triggerRounds: [7] },
       normalAttackCounter: counter,
       effects: [{ type: "vulnerable", value: .15, targetTroop: "all", zoneAggregation: "replace" }],
-    }, "每个兵种第6次普通攻击后的下下次攻击（第8次普通攻击）所在回合，将当回合全部vulnerable替换为15%；不与其他vulnerable相加，下一回合恢复正常。"),
+    }, "每个兵种第6次普通攻击后的下一次攻击（第7次普通攻击）所在回合，将当回合全部vulnerable替换为15%；不与其他vulnerable相加，下一回合恢复正常。"),
   ];
 }
 

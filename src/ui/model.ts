@@ -29,6 +29,11 @@ import type {
 import type { TroopLevelId, TroopType } from "../domain/troop";
 import type { TroopSkillId } from "../domain/troopSkill";
 import type { BattlePreparationConfig, TownBuffSize } from "../domain/preparation";
+import type {
+  BattleReportHeroAdjustmentConfig,
+  ReportHeroProfile,
+  ReportHeroProfileId,
+} from "../domain/reportHero";
 import type { DamageDistributionResult } from "../domain/probability";
 import { getHeroById } from "../game-data/heroes/bodyHeroQueries";
 import {
@@ -38,6 +43,10 @@ import {
   resolveBodySkillOptionHeroIds,
 } from "../game-data/body-skills";
 import { getAllHeadHeroes, getHeadHeroById } from "../game-data/heroes/headHeroQueries";
+import {
+  getReportHeroProfileById,
+  getReportHeroProfilesByTroopType,
+} from "../game-data/heroes/reportHeroProfiles";
 import { troopLevels } from "../game-data/troops/troopLevels";
 import { getFireCrystalSkills, getTroopSkillById } from "../game-data/troop-skills/troopSkillQueries";
 import {
@@ -54,6 +63,12 @@ import {
   optimizeTroopRatio,
 } from "../optimizer/troop-ratio";
 import { calculateBaseTroopDamage } from "../rulesets/bear/base-damage";
+import {
+  BEAR_PIT_ATTACK_PERCENT,
+  resolveBattleReportAdjustedTroops,
+} from "../systems/reportHeroAdjustment";
+
+export { BEAR_PIT_ATTACK_PERCENT } from "../systems/reportHeroAdjustment";
 
 export const TROOP_TYPES = ["shield", "lancer", "marksman"] as const;
 export const TROOP_LABELS: Readonly<Record<TroopType, string>> = {
@@ -73,6 +88,13 @@ export type CalculatorInputMode = "battleReport" | "rally";
 
 export interface BattleReportInputState {
   readonly troops: Readonly<Record<TroopType, TroopFormValues>>;
+  /** 可选仅用于兼容旧的序列化表单；缺省时按各兵种R、专武0级处理。 */
+  readonly heroSelections?: Readonly<Record<TroopType, ReportHeroSelectionFormValues>>;
+}
+
+export interface ReportHeroSelectionFormValues {
+  readonly profileId: string;
+  readonly weaponLevel: string;
 }
 
 export interface RallyInputState {
@@ -87,6 +109,7 @@ export interface CalculatorFormState {
   readonly rallyInputState: RallyInputState;
   readonly bodyHeroIds: readonly string[];
   readonly headHeroIds: Readonly<Record<TroopType, string>>;
+  readonly headHeroWeaponLevels: Readonly<Record<TroopType, string>>;
   readonly fireCrystalSkillIds: readonly string[];
   readonly topK: string;
   readonly ratioStepPercent: string;
@@ -156,9 +179,6 @@ export interface UiCalculationResult {
   readonly skippedSkills: readonly UiSkillNotice[];
   readonly result: TenRoundExpectedDamageResult;
 }
-
-/** 熊坑固定攻击属于基础A加算，数值单位为UI百分数点。 */
-export const BEAR_PIT_ATTACK_PERCENT = 25;
 
 type UiBattleInput = Parameters<typeof calculateTenRoundExpectedDamage>[0] & {
   readonly preparation: BattlePreparationConfig;
@@ -244,6 +264,14 @@ export const bodySkillOptions = getAllBodySkillOptions();
 // UI允许选择仍有有效英雄/专武数据但尚无可计算远征技能的英雄；
 // optimizableForBear 只约束自动优化候选，不得用来隐藏手动选择。
 export const headHeroOptions = getAllHeadHeroes();
+export const reportHeroOptionsByTroop: Readonly<Record<TroopType, readonly ReportHeroProfile[]>> = {
+  shield: getReportHeroProfilesByTroopType("shield"),
+  lancer: getReportHeroProfilesByTroopType("lancer"),
+  marksman: getReportHeroProfilesByTroopType("marksman"),
+};
+export const weaponLevelOptions = Array.from({ length: 11 }, (_, level) =>
+  levelOption(level),
+);
 // 自动解锁的燃晶火药、火焰冲击与炽火燧星不再作为手动复选项，避免重复计入。
 export const fireCrystalSkillOptions = getFireCrystalSkills().filter(() => false);
 
@@ -364,7 +392,14 @@ export function createDefaultFormState(): CalculatorFormState {
   });
   return {
     inputMode: "battleReport",
-    battleReportInputState: { troops: createNeutralTroops() },
+    battleReportInputState: {
+      troops: createNeutralTroops(),
+      heroSelections: {
+        shield: { profileId: "report-hero.shield.r", weaponLevel: "0" },
+        lancer: { profileId: "report-hero.lancer.r", weaponLevel: "0" },
+        marksman: { profileId: "report-hero.marksman.r", weaponLevel: "0" },
+      },
+    },
     rallyInputState: {
       generalAttackPercent: "0",
       generalPenetrationPercent: "0",
@@ -372,6 +407,7 @@ export function createDefaultFormState(): CalculatorFormState {
     },
     bodyHeroIds: ["", "", "", ""],
     headHeroIds: { shield: "", lancer: "", marksman: "" },
+    headHeroWeaponLevels: { shield: "0", lancer: "0", marksman: "0" },
     fireCrystalSkillIds: [],
     topK: "10",
     ratioStepPercent: "0.01",
@@ -423,7 +459,7 @@ export function calculateUiDamage(
     includeDamageDistribution: includeDamageInterval,
   });
   const baseline = calculateTenRoundExpectedDamage({
-    troops: built.input.troops,
+    troops: built.effectiveTroops,
     bodyHeroIds: [],
     headFormation: {},
     fireCrystal: { skillIds: [] },
@@ -444,7 +480,7 @@ export function calculateUiDamage(
     ?? built.input.troops.reduce((sum, troop) => sum + troop.troopCount, 0);
   const finalTroopCounts = result.preparation?.troopCounts;
   const baseDamageByTroop = Object.fromEntries(
-    built.input.troops.map((troop) => [
+    built.effectiveTroops.map((troop) => [
       troop.troopType,
       calculateBaseTroopDamage({
         ...troop,
@@ -515,6 +551,9 @@ export function createOptimizationRequest(
         ...(built.input.headFormation ? { headFormation: built.input.headFormation } : {}),
         ...(built.input.fireCrystal ? { fireCrystal: built.input.fireCrystal } : {}),
         preparation: built.input.preparation,
+        ...(built.input.battleReportHeroAdjustment === undefined
+          ? {}
+          : { battleReportHeroAdjustment: built.input.battleReportHeroAdjustment }),
       },
       options: { bodyCount: 4, topK },
     };
@@ -530,6 +569,9 @@ export function createOptimizationRequest(
         ...(built.input.headFormation ? { headFormation: built.input.headFormation } : {}),
         ...(built.input.fireCrystal ? { fireCrystal: built.input.fireCrystal } : {}),
         preparation: built.input.preparation,
+        ...(built.input.battleReportHeroAdjustment === undefined
+          ? {}
+          : { battleReportHeroAdjustment: built.input.battleReportHeroAdjustment }),
         baselineRatios: countsToRatios(toTroopCounts(built.input.troops)),
       },
       options: { stepPercent: ratioStepPercent, topK },
@@ -542,6 +584,9 @@ export function createOptimizationRequest(
       totalTroopCount,
       troopSettings,
       preparation: built.input.preparation,
+      ...(built.input.battleReportHeroAdjustment === undefined
+        ? {}
+        : { battleReportHeroAdjustment: built.input.battleReportHeroAdjustment }),
       ...(built.input.headFormation ? { headFormation: built.input.headFormation } : {}),
       ...(built.input.fireCrystal ? { fireCrystal: built.input.fireCrystal } : {}),
     },
@@ -674,6 +719,9 @@ function calculateTopOptimizationDamageInterval(
       ...(request.input.fireCrystal === undefined ? {} : { fireCrystal: request.input.fireCrystal }),
       ...(request.input.preparation === undefined ? {} : { preparation: request.input.preparation }),
       ...(request.input.damageChannel === undefined ? {} : { damageChannel: request.input.damageChannel }),
+      ...(request.input.battleReportHeroAdjustment === undefined
+        ? {}
+        : { battleReportHeroAdjustment: request.input.battleReportHeroAdjustment }),
     }, request.input.enemyBaseDefense);
   }
 
@@ -686,6 +734,9 @@ function calculateTopOptimizationDamageInterval(
       ...(request.input.fireCrystal === undefined ? {} : { fireCrystal: request.input.fireCrystal }),
       ...(request.input.preparation === undefined ? {} : { preparation: request.input.preparation }),
       ...(request.input.damageChannel === undefined ? {} : { damageChannel: request.input.damageChannel }),
+      ...(request.input.battleReportHeroAdjustment === undefined
+        ? {}
+        : { battleReportHeroAdjustment: request.input.battleReportHeroAdjustment }),
     }, request.input.enemyBaseDefense);
   }
   return undefined;
@@ -754,7 +805,7 @@ export function applyOptimizationRow(
   return {
     ...form,
     ...(form.inputMode === "battleReport"
-      ? { battleReportInputState: { troops: updatedTroops } }
+      ? { battleReportInputState: { ...form.battleReportInputState, troops: updatedTroops } }
       : { rallyInputState: { ...form.rallyInputState, troops: updatedTroops } }),
     bodyHeroIds,
     headHeroIds: {
@@ -768,6 +819,7 @@ export function applyOptimizationRow(
 
 function buildBattleInput(form: CalculatorFormState): {
   readonly input: UiBattleInput;
+  readonly effectiveTroops: UiBattleInput["troops"];
   readonly percentageNormalization: UiCalculationResult["percentageNormalization"];
   readonly localSkippedSkills: readonly UiSkillNotice[];
 } {
@@ -789,16 +841,9 @@ function buildBattleInput(form: CalculatorFormState): {
     if (level === undefined) throw new UiInputError(`${TROOP_LABELS[troopType]}等级不存在。`);
     if (level.status !== "known") throw new UiInputError(`${values.troopLevelId} 的等级常数尚未提供，不能计算。`);
     const attackPercent = readFiniteNumber(values.attackPercent, `${TROOP_LABELS[troopType]}攻击加成`)
-      + rallyGeneralAttack
-      + BEAR_PIT_ATTACK_PERCENT;
+      + (form.inputMode === "rally" ? rallyGeneralAttack + BEAR_PIT_ATTACK_PERCENT : 0);
     const penetrationPercent = readFiniteNumber(values.penetrationPercent, `${TROOP_LABELS[troopType]}穿透加成`)
       + rallyGeneralPenetration;
-    const attackDecimal = displayPercentToDecimal(attackPercent);
-    const penetrationDecimal = displayPercentToDecimal(penetrationPercent);
-    percentageNormalization[troopType] = {
-      attack: { displayPercent: attackPercent, decimal: attackDecimal, multiplier: 1 + attackDecimal },
-      penetration: { displayPercent: penetrationPercent, decimal: penetrationDecimal, multiplier: 1 + penetrationDecimal },
-    };
     return {
       troopType,
       troopCount,
@@ -825,6 +870,24 @@ function buildBattleInput(form: CalculatorFormState): {
     return skillId as TroopSkillId;
   });
   const preparation = buildPreparationConfig(form);
+  const battleReportHeroAdjustment = form.inputMode === "battleReport"
+    ? buildBattleReportHeroAdjustment(form)
+    : undefined;
+  const effectiveTroops = battleReportHeroAdjustment === undefined
+    ? troops
+    : resolveBattleReportAdjustedTroops(
+        troops,
+        headFormation,
+        battleReportHeroAdjustment,
+      ).troops;
+  for (const troop of effectiveTroops) {
+    const attackDecimal = displayPercentToDecimal(troop.stats.attackPercent);
+    const penetrationDecimal = displayPercentToDecimal(troop.stats.penetrationPercent);
+    percentageNormalization[troop.troopType] = {
+      attack: { displayPercent: troop.stats.attackPercent, decimal: attackDecimal, multiplier: 1 + attackDecimal },
+      penetration: { displayPercent: troop.stats.penetrationPercent, decimal: penetrationDecimal, multiplier: 1 + penetrationDecimal },
+    };
+  }
 
   return {
     input: {
@@ -833,10 +896,51 @@ function buildBattleInput(form: CalculatorFormState): {
       headFormation,
       fireCrystal: { skillIds: fireCrystalSkillIds },
       preparation,
+      ...(battleReportHeroAdjustment === undefined ? {} : { battleReportHeroAdjustment }),
     },
+    effectiveTroops,
     percentageNormalization,
     localSkippedSkills,
   };
+}
+
+function buildBattleReportHeroAdjustment(
+  form: CalculatorFormState,
+): BattleReportHeroAdjustmentConfig {
+  const reportHeroes = {} as Record<TroopType, {
+    profileId: ReportHeroProfileId;
+    weaponLevel: number;
+  }>;
+  const actualWeaponLevels = {} as Record<TroopType, number>;
+  for (const troopType of TROOP_TYPES) {
+    const selection = form.battleReportInputState.heroSelections?.[troopType] ?? {
+      profileId: `report-hero.${troopType}.r`,
+      weaponLevel: "0",
+    };
+    const profile = getReportHeroProfileById(selection.profileId as ReportHeroProfileId);
+    if (profile === undefined) throw new UiInputError(`找不到${TROOP_LABELS[troopType]}战报英雄档案。`);
+    if (profile.troopType !== troopType) {
+      throw new UiInputError(`${profile.label}不能作为${TROOP_LABELS[troopType]}战报英雄。`);
+    }
+    const reportWeaponLevel = readIntegerInRange(
+      selection.weaponLevel,
+      `${TROOP_LABELS[troopType]}战报英雄专武等级`,
+      0,
+      10,
+    );
+    if (!profile.hasExclusiveWeapon && reportWeaponLevel !== 0) {
+      throw new UiInputError(`${profile.label}没有专武，专武等级必须为0。`);
+    }
+    reportHeroes[troopType] = { profileId: profile.id, weaponLevel: reportWeaponLevel };
+    const actualLevel = readIntegerInRange(
+      form.headHeroWeaponLevels[troopType],
+      `${TROOP_LABELS[troopType]}实际车头专武等级`,
+      0,
+      10,
+    );
+    actualWeaponLevels[troopType] = form.headHeroIds[troopType] ? actualLevel : 0;
+  }
+  return { reportHeroes, actualWeaponLevels };
 }
 
 function buildPreparationConfig(form: CalculatorFormState): BattlePreparationConfig {

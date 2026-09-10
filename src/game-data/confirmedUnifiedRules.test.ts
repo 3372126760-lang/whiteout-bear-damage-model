@@ -92,7 +92,7 @@ describe("确认后的真实英雄规则", () => {
     expect(effect?.expectedStackCount).toBeCloseTo(.875, 12);
   });
 
-  it("格温第6次攻击造成100% extraDamage，第8次攻击用15%易伤覆盖后恢复", () => {
+  it("格温第6次攻击造成100% extraDamage，第7次攻击用15%易伤覆盖后恢复", () => {
     const gwen = getHeadHeroById("hero.head.gewen")!;
     const specialDamage = gwen.headSkills.find(
       (definition) => definition.id === "head-skill.gewen.special-damage",
@@ -110,7 +110,7 @@ describe("确认后的真实英雄规则", () => {
       }),
     ]);
     expect(specialDamage?.skill?.effects.some((effect) => effect.type === "extraAttack")).toBe(false);
-    expect(override?.skill?.trigger).toMatchObject({ triggerRounds: [8] });
+    expect(override?.skill?.trigger).toMatchObject({ triggerRounds: [7] });
     expect(override?.skill?.effects).toEqual([
       expect.objectContaining({
         type: "vulnerable",
@@ -129,9 +129,9 @@ describe("确认后的真实英雄规则", () => {
     expect(result.expectedDamageByRound[5]!.expectedTotalDamage).toBeCloseTo(base * 2.5, 10);
     expect(result.expectedDamageByRound[5]!.expectedExtraAttackDamage).toBe(0);
     expect(result.expectedDamageByRound[5]!.expectedAttackCount).toBe(0);
-    expect(result.expectedDamageByRound[6]!.expectedTotalDamage).toBeCloseTo(base * 1.25, 10);
-    expect(result.expectedDamageByRound[7]!.expectedTotalDamage).toBeCloseTo(base * 1.15, 10);
-    expect(result.expectedDamageByRound[7]!.expectedMultipliersByTroop.marksman?.byEffectType.vulnerable).toBeCloseTo(1.15, 12);
+    expect(result.expectedDamageByRound[6]!.expectedTotalDamage).toBeCloseTo(base * 1.15, 10);
+    expect(result.expectedDamageByRound[6]!.expectedMultipliersByTroop.marksman?.byEffectType.vulnerable).toBeCloseTo(1.15, 12);
+    expect(result.expectedDamageByRound[7]!.expectedTotalDamage).toBeCloseTo(base * 1.25, 10);
     expect(result.expectedDamageByRound[8]!.expectedTotalDamage).toBeCloseTo(base * 1.25, 10);
     expect(result.skippedPendingSkills.some((skill) => skill.ownerId === "hero.head.gewen")).toBe(false);
   });
@@ -146,7 +146,12 @@ describe("确认后的真实英雄规则", () => {
     expect(hendrick.expectedDamageByRound[0]!.expectedMultipliersByTroop.shield?.byEffectType.defenseReduction).toBe(1.25);
     const blanche = calculate({ headFormation: { marksmanHeroId: "hero.head.bulanqi" } });
     expect(blanche.expectedDamageByRound[0]!.expectedMultipliersByTroop.shield?.byEffectType.penetration).toBe(1.25);
-    expect(blanche.expectedExtraDamage).toBeCloseTo(blanche.expectedNormalDamage * .75, 8);
+    for (const round of blanche.expectedDamageByRound) {
+      expect(round.expectedExtraDamage).toBeCloseTo(
+        [3, 6, 9].includes(round.round) ? round.expectedNormalDamage * .75 : 0,
+        8,
+      );
+    }
     const rufus = calculate({ headFormation: { marksmanHeroId: "hero.head.lufusi" } });
     expect(rufus.expectedDamageByRound[0]!.expectedMultipliersByTroop.shield?.byEffectType.attack).toBe(1.25);
     expect(rufus.expectedExtraDamage).toBeCloseTo(rufus.expectedNormalDamage * .60, 8);

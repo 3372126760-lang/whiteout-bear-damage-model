@@ -236,9 +236,9 @@ describe("Stage 24 stable core audit", () => {
   it("真实技能统计稳定且剩余阻塞严格区分RULE_UNKNOWN与DATA_SOURCE_UNCERTAIN", () => {
     const support = generateSkillSupportReport();
     const blockers = generatePendingSkillBlockerReport();
-    expect(collectSkillCatalog()).toHaveLength(80);
-    expect(support.totals.skills).toEqual({ supported: 76, pending: 4, unsupported: 0 });
-    expect(support.totals.effects).toEqual({ supported: 80, pending: 0, unsupported: 0 });
+    expect(collectSkillCatalog()).toHaveLength(82);
+    expect(support.totals.skills).toEqual({ supported: 78, pending: 4, unsupported: 0 });
+    expect(support.totals.effects).toEqual({ supported: 82, pending: 0, unsupported: 0 });
     expect(blockers.engineCapability).toHaveLength(0);
     expect(blockers.gameRuleInformation).toHaveLength(0);
     expect(blockers.dataSourceUncertain).toHaveLength(4);

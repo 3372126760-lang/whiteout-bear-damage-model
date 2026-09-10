@@ -6,6 +6,19 @@ export interface ChangelogEntry {
 
 export const CHANGELOG_ENTRIES: readonly ChangelogEntry[] = [
   {
+    version: "0.4",
+    date: "2026-09-10",
+    changes: [
+      "修正多名车头英雄技能触发回合及缺失输出效果",
+      "修正韦恩、格温、亨德里克、布兰琪等技能时序",
+      "完善阿隆索、布拉德利等车头输出技能数据",
+      "明确全军增伤与兵种专属增伤同区加算规则",
+      "战报模式新增战报英雄与专武等级",
+      "实际车头新增专武等级，并按静态属性差修正基础攻击与穿透",
+      "新增 R / SR / S1～S16 战报英雄档案",
+    ],
+  },
+  {
     version: "0.3",
     date: "2026-09-10",
     changes: [

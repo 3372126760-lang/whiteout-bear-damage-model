@@ -29,6 +29,31 @@ const extra = (value: number): Skill["effects"][number] => ({
 });
 
 describe("正式打熊普通/技能伤害分支", () => {
+  it("全军增伤与兵种专属增伤同区加算，兵种克制再独立相乘", () => {
+    const shield = applyBearSkillsToBaseTroopDamage(base, [
+      skill("general", [{ type: "baseDamageIncrease", value: .2, targetTroop: "all" }]),
+      skill("marksman", [{ type: "marksmanDamage", value: 1, targetTroop: "marksman" }]),
+      skill("counter", [{ type: "troopVsTroopDamage", value: .25, targetTroop: "all" }]),
+    ]);
+    expect(shield.multipliers.multiplierByEffectType.baseDamageIncrease).toBeCloseTo(1.2, 12);
+    expect(shield.multipliers.multiplierByEffectType.troopVsTroopDamage).toBeCloseTo(1.25, 12);
+    const lancer = applyBearSkillsToBaseTroopDamage({ ...base, troopType: "lancer" }, [
+      skill("general", [{ type: "baseDamageIncrease", value: .2, targetTroop: "all" }]),
+      skill("marksman", [{ type: "marksmanDamage", value: 1, targetTroop: "marksman" }]),
+    ]);
+    expect(lancer.multipliers.multiplierByEffectType.baseDamageIncrease).toBeCloseTo(1.2, 12);
+
+    const marksmanBase = { ...base, troopType: "marksman" as const };
+    const marksman = applyBearSkillsToBaseTroopDamage(marksmanBase, [
+      skill("general", [{ type: "baseDamageIncrease", value: .2, targetTroop: "all" }]),
+      skill("marksman", [{ type: "marksmanDamage", value: 1, targetTroop: "marksman" }]),
+      skill("counter", [{ type: "troopVsTroopDamage", value: .25, targetTroop: "all" }]),
+    ]);
+    expect(marksman.multipliers.multiplierByEffectType.baseDamageIncrease).toBeCloseTo(2.2, 12);
+    expect(marksman.multipliers.multiplierByEffectType.troopVsTroopDamage).toBeCloseTo(1.25, 12);
+    expect(marksman.damage).toBeCloseTo(marksmanBase.damage * 2.75, 12);
+  });
+
   it("严格使用 common × (普攻倍率 + extraDamageRate × 技能倍率)", () => {
     const result = applyBearSkillsToBaseTroopDamage(base, [
       skill("base", [{ type: "baseDamageIncrease", value: .2 }]),

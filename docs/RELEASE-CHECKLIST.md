@@ -1,6 +1,6 @@
 # 发布候选检查清单
 
-版本：v0.3
+版本：v0.4
 
 验证日期：2026-09-10
 形态：纯前端 React + TypeScript + Vite 静态网站。伤害计算、精确概率状态传播和优化器均在用户浏览器中运行，不需要自建后端服务器。
@@ -17,9 +17,9 @@
 
 ## 2026-09-10 验证结果
 
-- [x] Vitest：40 个测试文件，438/438 通过。
+- [x] Vitest：42 个测试文件，461/461 通过。
 - [x] TypeScript：`tsc --noEmit` 通过。
-- [x] Vite production build：112 个模块，构建通过。
+- [x] Vite production build：114 个模块，构建通过。
 - [x] Benchmark：构建和固定样本全部完成，详见 `performance-benchmark.md`。
 - [x] Production preview：使用 `npm.cmd run preview -- --host 127.0.0.1 --port 4173` 启动成功。
 - [x] 生产首页、主 JS、CSS 和 optimizer worker 均从 `dist/` 正常加载。
@@ -30,9 +30,9 @@
 ## 生产产物
 
 - `dist/index.html`：0.47 kB，gzip 0.35 kB。
-- `dist/assets/index-B0arOKhU.js`：405.83 kB，gzip 117.28 kB。
-- `dist/assets/index-uEgS_d9B.css`：6.35 kB，gzip 1.95 kB。
-- `dist/assets/optimizer.worker-BCxElQvG.js`：187.43 kB。
+- `dist/assets/index-vqM-08zk.js`：416.61 kB，gzip 120.10 kB。
+- `dist/assets/index-jN5Pz-jH.css`：6.43 kB，gzip 1.96 kB。
+- `dist/assets/optimizer.worker-CLp0U89D.js`：194.33 kB。
 - Vite 使用 GitHub Pages 项目基址 `/whiteout-bear-damage-model/`，产物不依赖开发机路径、VS Code 或本机 Node 运行时。
 
 ## 当前 Pending

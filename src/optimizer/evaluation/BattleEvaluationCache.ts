@@ -87,5 +87,6 @@ export function createBattleEvaluationKey(
     // 火晶联动的声明顺序未来可能具有时序意义，因此不擅自排序。
     fireCrystalSkillIds: input.fireCrystal?.skillIds ?? [],
     preparation: input.preparation ?? null,
+    battleReportHeroAdjustment: input.battleReportHeroAdjustment ?? null,
   });
 }

@@ -19,7 +19,7 @@
 
 ## 状态统计
 
-当前完整 catalog 共 80 个技能记录：76 supported、4 pending、0 unsupported。结构化效果为 80 supported、0 pending、0 unsupported。pending 分类为 RULE_UNKNOWN 0、ENGINE_GAP 0、DATA_SOURCE_UNCERTAIN 4。明细见 pending-skill-audit.md。
+当前完整 catalog 共 82 个技能记录：78 supported、4 pending、0 unsupported。结构化效果为 82 supported、0 pending、0 unsupported。v0.4 新增阿隆索概率伤害提升和布拉德利全军攻击提升。pending 分类为 RULE_UNKNOWN 0、ENGINE_GAP 0、DATA_SOURCE_UNCERTAIN 4。明细见 pending-skill-audit.md。
 
 ## 数据维护
 

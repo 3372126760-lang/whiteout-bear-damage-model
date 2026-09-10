@@ -14,6 +14,7 @@ import {
 } from "./BattleEvaluationCache";
 import { getHeroById } from "../../game-data/heroes/bodyHeroQueries";
 import type { BodyHeroId, HeroId } from "../../domain/hero";
+import { resolveBattleReportAdjustedInput } from "../../systems/reportHeroAdjustment";
 
 export interface OptimizerBattleEvaluation {
   readonly score: number;
@@ -77,7 +78,8 @@ export function createOptimizerBattleEvaluator(
           : undefined,
       );
       const cached = cache.getOrCompute(key, () => {
-        const { fireCrystal: _fireCrystal, ...singleRoundInput } = input;
+        const resolvedInput = resolveBattleReportAdjustedInput(input).input;
+        const { fireCrystal: _fireCrystal, ...singleRoundInput } = resolvedInput;
         const singleRoundResult = calculateSingle(singleRoundInput);
         const deterministicTenRoundResult =
           calculateBearBattleTotalDamageFromSingleRound(
@@ -100,7 +102,7 @@ export function createOptimizerBattleEvaluator(
         }
 
         const expectedResult = calculateExpected(
-          input,
+          resolvedInput,
           options.enemyBaseDefense === undefined
             ? {}
             : { enemyBaseDefense: options.enemyBaseDefense },

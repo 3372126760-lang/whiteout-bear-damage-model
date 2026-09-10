@@ -225,9 +225,20 @@ export type {
   TenRoundSkillRoundExplanation,
   ExpectedStackChange,
 } from "./domain/tenRoundExpectedDamage";
+export type {
+  BattleReportHeroAdjustmentConfig,
+  BattleReportHeroSelection,
+  HeroStaticCombatStats,
+  ReportHeroProfile,
+  ReportHeroProfileId,
+  ReportHeroRarity,
+  ResolvedBattleReportAttributeAdjustment,
+  ResolveBattleReportAttributesInput,
+} from "./domain/reportHero";
 export * from "./domain/preparation";
 export * from "./game-data/systems/progression";
 export * from "./systems/preparation";
+export * from "./systems/reportHeroAdjustment";
 export * from "./engine/rounds";
 export * from "./engine/attacks";
 export * from "./engine/trigger-chain";
@@ -256,6 +267,7 @@ export {
   getSupportedHeadSkills,
   getUnsupportedHeadSkills,
 } from "./game-data/heroes/headHeroQueries";
+export * from "./game-data/heroes/reportHeroProfiles";
 export * from "./game-data/troop-skills";
 export * from "./game-data/skills";
 export * from "./data-audit";
